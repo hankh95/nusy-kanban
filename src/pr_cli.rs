@@ -372,42 +372,51 @@ pub fn run_pr_command(
             // Verify proposal exists
             let _ = proposals.get_status(id)?;
 
-            let repo_root =
-                get_repo_root().map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+            #[cfg(feature = "ci")]
+            {
+                let repo_root =
+                    get_repo_root().map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
 
-            println!("Running CI checks for {id}...\n");
-            let suite = nusy_conductor::ci_runner::run_ci_checks(&repo_root);
+                println!("Running CI checks for {id}...\n");
+                let suite = nusy_conductor::ci_runner::run_ci_checks(&repo_root);
 
-            // Convert CiCheckSuite → CiResultInput for storage
-            let (test_passed, test_failed, clippy_warnings, fmt_clean) =
-                extract_check_counts(&suite);
+                // Convert CiCheckSuite → CiResultInput for storage
+                let (test_passed, test_failed, clippy_warnings, fmt_clean) =
+                    extract_check_counts(&suite);
 
-            let status = if suite.passed {
-                CiStatus::Passed
-            } else if suite.error.is_some() {
-                CiStatus::Error
-            } else {
-                CiStatus::Failed
-            };
+                let status = if suite.passed {
+                    CiStatus::Passed
+                } else if suite.error.is_some() {
+                    CiStatus::Error
+                } else {
+                    CiStatus::Failed
+                };
 
-            let summary_text = suite.summary();
-            let error_msg = suite.error.as_deref();
+                let summary_text = suite.summary();
+                let error_msg = suite.error.as_deref();
 
-            let input = CiResultInput {
-                proposal_id: id,
-                status,
-                test_passed,
-                test_failed,
-                clippy_warnings,
-                fmt_clean,
-                duration_secs: suite.total_duration.as_secs_f64(),
-                error_message: error_msg,
-                summary: &summary_text,
-            };
+                let input = CiResultInput {
+                    proposal_id: id,
+                    status,
+                    test_passed,
+                    test_failed,
+                    clippy_warnings,
+                    fmt_clean,
+                    duration_secs: suite.total_duration.as_secs_f64(),
+                    error_message: error_msg,
+                    summary: &summary_text,
+                };
 
-            let run_id = ci_results.record_result(&input)?;
-            println!("{summary_text}");
-            println!("\nStored as {run_id}");
+                let run_id = ci_results.record_result(&input)?;
+                println!("{summary_text}");
+                println!("\nStored as {run_id}");
+            }
+
+            #[cfg(not(feature = "ci"))]
+            {
+                let _ = (id, ci_results);
+                println!("CI features not enabled. Rebuild with --features ci to run CI checks.");
+            }
         }
     }
 
@@ -415,6 +424,7 @@ pub fn run_pr_command(
 }
 
 /// Extract test/clippy/fmt counts from a CiCheckSuite.
+#[cfg(feature = "ci")]
 fn extract_check_counts(suite: &nusy_conductor::ci_runner::CiCheckSuite) -> (u32, u32, u32, bool) {
     use nusy_conductor::ci_runner::CheckType;
 
@@ -1536,6 +1546,7 @@ mod tests {
         assert_eq!(parse_warning_count("no warnings"), 1); // unparseable → default 1
     }
 
+    #[cfg(feature = "ci")]
     #[test]
     fn test_extract_check_counts_from_suite() {
         use nusy_conductor::ci_runner::{CheckResult, CheckType, CiCheckSuite};

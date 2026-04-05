@@ -2,7 +2,7 @@
 name = "nusy-kanban"
 description = "Arrow-native kanban engine — SHACL shapes, graph-native PRs, dual boards, NATS multi-agent collaboration"
 version = "0.14.2"
-edition = "2021"
+edition = "2024"
 license = "MIT"
 repository = "https://github.com/hankh95/nusy-kanban"
 keywords = ["kanban", "arrow", "neurosymbolic", "nats", "project-management"]
@@ -19,10 +19,10 @@ arrow = { version = "57", features = ["prettyprint"] }
 parquet = { version = "57", features = ["arrow"] }
 
 # NuSy crates (published on crates.io)
-nusy-arrow-core = { version = "0.14.2", features = ["parquet"] }
-nusy-arrow-git = { version = "0.14.2" }
-nusy-graph-query = { version = "0.14.2", features = ["ollama", "subprocess"] }
-noesis-ship = { version = "0.14.2" }
+nusy-arrow-core = "0.14.2"
+nusy-arrow-git = "0.14.2"
+nusy-graph-query = "0.14.2"
+noesis-ship = "0.14.2"
 
 # Core deps
 uuid = { version = "1", features = ["v4"] }
@@ -35,13 +35,21 @@ serde_yaml = "0.9"
 serde_json = "1"
 sha2 = "0.10"
 
-# Optional deps
-async-nats = "0.38"
-tokio = { version = "1", features = ["full"] }
+# Optional deps — only needed when respective features are enabled
+nusy-graph-review = { version = "0.14.2", optional = true }
+nusy-conductor = { version = "0.14.2", optional = true }
+nusy-codegraph = { version = "0.14.2", optional = true }
+async-nats = { version = "0.38", optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"
 
 [features]
-default = ["client"]
+default = ["client", "pr"]
 # NATS remote server mode
 client = ["dep:async-nats", "dep:tokio"]
-# Fastembed embedding backend
-fastembed = ["nusy-graph-query/fastembed"]
+# Graph-native PR workflow (requires nusy-graph-review and nusy-codegraph)
+pr = ["dep:nusy-graph-review", "dep:nusy-codegraph"]
+# CI runner (requires nusy-conductor)
+ci = ["dep:nusy-conductor"]

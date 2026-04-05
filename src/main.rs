@@ -2663,6 +2663,12 @@ fn run(root: PathBuf, command: Commands) -> Result<(), Box<dyn std::error::Error
         | Commands::Config(_) => {
             unreachable!("Build/Test/Materialize/Config intercepted before run()")
         }
+
+        #[cfg(not(feature = "build"))]
+        Commands::Materialize { .. }
+        | Commands::Config(_) => {
+            return Err("Materialize and Config commands require the 'build' feature. Rebuild with --features build.".into());
+        }
     }
 
     Ok(())
@@ -2898,6 +2904,7 @@ fn run_client(server_url: &str, command: &Commands) -> Result<(), Box<dyn std::e
     let client = nusy_kanban::client::NatsClient::connect(server_url)?;
 
     // Special-case: pr recheck runs CI locally then stores results on server
+    #[cfg(feature = "ci")]
     if let Commands::Pr {
         command: nusy_kanban::pr_cli::PrCommands::Recheck { id },
     } = command
@@ -2920,7 +2927,7 @@ fn run_client(server_url: &str, command: &Commands) -> Result<(), Box<dyn std::e
 /// 1. Verifies the proposal exists on the server
 /// 2. Runs cargo test/clippy/fmt locally
 /// 3. Stores the results on the server via `pr.ci_store`
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "ci"))]
 fn run_recheck_client(
     client: &nusy_kanban::client::NatsClient,
     proposal_id: &str,

@@ -50,15 +50,9 @@ pub fn resolve_provider(provider_name: Option<&str>) -> Box<dyn EmbeddingProvide
         .unwrap_or_else(|| "hash".to_string());
 
     match name.as_str() {
-        "subprocess" => Box::new(nusy_graph_query::SubprocessEmbeddingProvider::new()),
-        #[cfg(feature = "fastembed")]
-        "fastembed" => match nusy_graph_query::FastembedProvider::new() {
-            Ok(provider) => Box::new(provider),
-            Err(e) => {
-                eprintln!("Warning: fastembed init failed ({e}), falling back to hash");
-                Box::new(HashEmbeddingProvider)
-            }
-        },
+        // NOTE: fastembed and subprocess embedding providers removed — the published
+        // nusy-graph-query does not expose these types. Only "hash" (default) is
+        // available in the published crate.
         _ => Box::new(HashEmbeddingProvider),
     }
 }
