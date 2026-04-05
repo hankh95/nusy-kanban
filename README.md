@@ -336,8 +336,7 @@ validation examples, and status tables).
 
 | Crate | Role |
 |-------|------|
-| [nusy-arrow-core](https://crates.io/crates/arrow-graph-core) | Arrow schemas, graph store |
-| [nusy-arrow-git](https://crates.io/crates/arrow-graph-git) | Graph-native git primitives, WAL + atomic rename |
+| [arrow-graph-git](https://crates.io/crates/arrow-graph-git) | Graph-native git primitives, WAL + atomic rename |
 | **nusy-kanban** | Kanban engine + CLI (this crate) |
 | [nusy-kanban-server](https://crates.io/crates/nusy-kanban) | NATS server for multi-agent coordination |
 
@@ -353,6 +352,11 @@ validation examples, and status tables).
 | `build` | Cranelift build/test integration | on |
 | `codegraph` | Code graph integration | on |
 | `fastembed` | Fastembed embedding backend | on |
+
+**Note on dependencies:** This crate uses Arrow ecosystem crates from crates.io (`arrow`,
+`parquet`, `nusy-arrow-git`, `nusy-graph-query`, `nusy-graph-review`). The internal
+`nusy-arrow-core` crate is **not** a runtime dependency — it was removed in EX-3710
+harmonization (previously declared but unused in source).
 
 ---
 
