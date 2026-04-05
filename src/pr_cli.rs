@@ -13,9 +13,11 @@
 
 use clap::Subcommand;
 use nusy_graph_review::{
-    CiResultInput, CiResultStore, CiStatus, CommentStore, CreateProposalInput, ProposalStore,
+    CiResultStore, CommentStore, CreateProposalInput, ProposalStore,
     check_approval_gate, classify_proposal, default_gates, safety_gates::ChangeEntry,
 };
+#[cfg(feature = "ci")]
+use nusy_graph_review::{CiResultInput, CiStatus};
 
 /// PR subcommands — mirrors `gh pr`.
 #[derive(Subcommand)]
@@ -457,6 +459,7 @@ fn extract_check_counts(suite: &nusy_conductor::ci_runner::CiCheckSuite) -> (u32
 }
 
 /// Parse "42 passed, 3 failed" → (42, 3) from test summary.
+#[cfg(feature = "ci")]
 fn parse_test_counts(summary: &str) -> (u32, u32) {
     let passed = summary
         .split_whitespace()
@@ -474,6 +477,7 @@ fn parse_test_counts(summary: &str) -> (u32, u32) {
 }
 
 /// Parse "N warning(s)" → N from clippy summary.
+#[cfg(feature = "ci")]
 fn parse_warning_count(summary: &str) -> u32 {
     summary
         .split_whitespace()
@@ -1419,6 +1423,7 @@ mod tests {
 
     // ── CI integration tests ──
 
+    #[cfg(feature = "ci")]
     #[test]
     fn test_checks_shows_ci_results_when_present() {
         let mut proposals = ProposalStore::new();
@@ -1490,6 +1495,7 @@ mod tests {
         assert!(result.is_none());
     }
 
+    #[cfg(feature = "ci")]
     #[test]
     fn test_ci_result_replacement_on_recheck() {
         let mut ci = CiResultStore::new();
@@ -1532,6 +1538,7 @@ mod tests {
         assert_eq!(v2.test_failed, 0);
     }
 
+    #[cfg(feature = "ci")]
     #[test]
     fn test_parse_test_counts() {
         assert_eq!(parse_test_counts("42 passed, 3 failed"), (42, 3));
@@ -1540,6 +1547,7 @@ mod tests {
         assert_eq!(parse_test_counts("0 passed, 5 failed"), (0, 5));
     }
 
+    #[cfg(feature = "ci")]
     #[test]
     fn test_parse_warning_count() {
         assert_eq!(parse_warning_count("5 warning(s)"), 5);

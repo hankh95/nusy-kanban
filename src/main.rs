@@ -2665,8 +2665,7 @@ fn run(root: PathBuf, command: Commands) -> Result<(), Box<dyn std::error::Error
         }
 
         #[cfg(not(feature = "build"))]
-        Commands::Materialize { .. }
-        | Commands::Config(_) => {
+        Commands::Materialize { .. } | Commands::Config(_) => {
             return Err("Materialize and Config commands require the 'build' feature. Rebuild with --features build.".into());
         }
     }

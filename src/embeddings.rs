@@ -49,12 +49,11 @@ pub fn resolve_provider(provider_name: Option<&str>) -> Box<dyn EmbeddingProvide
         .or_else(|| std::env::var("NUSY_EMBEDDING_PROVIDER").ok())
         .unwrap_or_else(|| "hash".to_string());
 
-    match name.as_str() {
-        // NOTE: fastembed and subprocess embedding providers removed — the published
-        // nusy-graph-query does not expose these types. Only "hash" (default) is
-        // available in the published crate.
-        _ => Box::new(HashEmbeddingProvider),
-    }
+    // NOTE: fastembed and subprocess embedding providers removed — the published
+    // nusy-graph-query does not expose these types. Only "hash" (default) is
+    // available in the published crate.
+    let _ = name;
+    Box::new(HashEmbeddingProvider)
 }
 
 /// Build embeddable text for a kanban item: "title tag1 tag2 ... item_type".
