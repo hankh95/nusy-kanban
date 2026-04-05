@@ -3,227 +3,329 @@
 [![Crates.io](https://img.shields.io/crates/v/nusy-kanban)](https://crates.io/crates/nusy-kanban)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Arrow-native kanban with a nautical soul** — track expeditions, voyages, and
-research with graph-native PRs, dual boards, and NATS-powered multi-agent
-collaboration.
+**Arrow-native kanban with a nautical soul** — a high-performance, multi-agent work
+tracker built on Apache Arrow and Parquet. Tracks expeditions, voyages, and research
+with graph-native PRs, dual boards (dev + research), and NATS-powered coordination.
+
+For AI developers building autonomous agents, `nusy-kanban` provides a structured
+research workflow (HDD), SPARQL-queryable metadata, and a training queue — everything
+a being needs to own its own development pipeline.
 
 ## For AI Developers
 
-Install the CLI (no features, pure kanban):
+This crate is designed for two audiences:
 
-```bash
-cargo install nusy-kanban --no-default-features
-```
+1. **Teams** — developers who want a fast, self-hosted kanban with NATS multi-agent
+   coordination, crash-safe persistence, and zero-copy columnar queries.
+2. **Autonomous AI beings** — agents who need a structured development workflow with
+   hypothesis tracking, experiment queuing, and measurable targets.
 
-Initialize a local store in any git repo:
+If you are building a being that manages its own work, start with the
+[Hypothesis-Driven Development (HDD) guide](#hdd-for-autonomous-beings) below.
 
-```bash
-nk init                    # creates .nusy-kanban/ with Arrow store
-nk create expedition "Build something great" --body "Phase 1: ..." --push
-nk board                   # see the board
-nk move EXP-3001 underway  # move to in_progress
-nk show EXP-3001           # full detail
-nk list --status harbor    # backlog items
-```
-
-For multi-agent teams, point everyone at the same NATS server:
-
-```bash
-alias nk='nusy-kanban --server nats://your-host:4222'
-```
-
-## Architecture
-
-```
-                       nusy-kanban CLI
-┌──────────────────────────────────────────────────────────┐
-│  Arrow RecordBatch  │  NATS client  │  Shell alias       │
-└──────────┬──────────┴───────┬───────┴────────────────────┘
-           │                  │
-           ▼                  ▼
-┌───────────────────┐  ┌─────────────────────┐
-│  Parquet snapshot │  │   NATS server       │
-│  (nusy-arrow-git) │  │  (single-writer KV) │
-└───────────────────┘  └─────────────────────┘
-```
-
-- **Storage:** Apache Arrow RecordBatches persisted to Parquet via WAL + atomic rename
-- **Multi-agent:** NATS server provides single-writer semantics — no ID collisions, no store drift
-- **Queries:** Zero-copy columnar scans over Arrow data — fast even at 10k+ items
-
-## Motivation
-
-File-based kanban tools break under pressure. YAML parsing is fragile, git merge
-conflicts pile up on concurrent access, and querying across hundreds of items
-means globbing directories and hoping for the best.
-
-`nusy-kanban` replaces all of that with Apache Arrow RecordBatches and Parquet
-persistence. Queries are zero-copy scans over columnar data. Writes go through a
-crash-safe WAL with atomic rename. Multi-agent teams coordinate through a NATS
-server that provides single-writer semantics — no more ID collisions or store
-drift when three developers push at once.
-
-The result: a kanban engine that handles thousands of work items at the speed of
-an in-memory database, persists to a single Parquet file, and still feels like
-typing `git status`.
-
-## The Nautical Theme
-
-Every project is a voyage. Work items follow a nautical lifecycle:
-
-```
-Harbor → Provisioning → Underway → Approaching Port → Arrived
-(backlog)   (ready)    (in_progress)   (review)       (done)
-```
-
-| Type | Meaning | Example |
-|------|---------|---------|
-| **Expedition** (EXP) | Feature work | "Add OAuth2 provider support" |
-| **Chore** (CHORE) | Maintenance | "Update CI to Rust 1.82" |
-| **Voyage** (VOY) | Multi-phase campaign | "V14 Arrow Migration" |
-| **Hazard** (HAZ) | Risk or blocker | "NATS reconnect drops events" |
-| **Signal** (SIG) | Observation | "Parquet write latency spike at 10k rows" |
-
-## Features
-
-**Core**
-- Create, move, update, comment, and delete work items
-- Atomic `create --push` (allocate ID + create + git commit + push in one command)
-- Full status history with timestamps and assignee tracking
-- WIP limits with `--force` override and audit trail
-- Parquet persistence with WAL + atomic rename (via nusy-arrow-git)
-- ID allocation starting at 3001+ (clean separation from legacy file-era IDs)
-- YAML frontmatter import/export for interop with existing markdown workflows
-- Shell alias friendly (`alias nk='nusy-kanban --server nats://...'`)
-
-**Query & Visibility**
-- `board` — columnar board view with status counts
-- `list` — filter by status, type, assignee, tags, board
-- `show` — full item detail with comments and status history
-- `query` — natural-language search across all items
-- `stats` — board statistics and velocity metrics
-- `history` — audit log for any item
-
-**Planning & Analysis**
-- `roadmap` — voyage-grouped, dependency-ordered view (`--flat` for priority-ranked, `--ready` for unblocked only)
-- `critical-path` — dependency chain with parallel tracks and depth levels
-- `worklist` — agent work assignments based on dependency readiness (`--agents`, `--depth`)
-- `blocked` — surface items with unresolved dependency blockers
-- `list --ready` — filter any list to only items with all dependencies met
-
-**Management**
-- `validate` — check board integrity (orphaned refs, missing fields)
-- `export` — dump board to JSON, CSV, or Parquet
-- `rank` / `next` — priority ranking and "what should I work on?" recommendations
-- `migrate` — upgrade from file-based kanban stores
-
-**HDD Research Board**
-- Dedicated research board with domain-specific types: Paper, Hypothesis, Experiment, Measure, Idea, Literature
-- Per-type lifecycles (hypotheses are `draft → active → retired`, never "complete")
-- `hdd` subcommand for Hypothesis-Driven Development workflows
-- SPARQL-style queries over experiment metadata (run status, blockers, GPU requirements)
-- Experiment queue tracking with `expr:runStatus` predicates
-- Cross-board linking between expeditions and experiments
-- Shared eval-data conventions for multi-agent research
-- Research board stats separate from development velocity
-
-**Graph-Native PR Review** (9 capabilities via `nk pr`)
-- `pr create` / `pr list` / `pr show` / `pr approve` / `pr merge`
-- Safety gates: blocks merge if tests fail or required reviewers haven't approved
-- Proposal diffs rendered as graph deltas (what changed in the knowledge graph)
-- Cross-agent review assignment
-- Integrates with nusy-graph-review for structured proposal workflows
+---
 
 ## Quick Start
 
 ```bash
 cargo install nusy-kanban
 
-# Initialize a new kanban store in the current repo
+# Initialize (creates .nusy-kanban/ locally)
 nusy-kanban init
 
-# Create your first expedition (atomically commits and pushes)
+# Create your first expedition
+alias nk='nusy-kanban'   # or --server nats://your-host:4222 for multi-agent
 nk create expedition "My First Feature" \
-  --body "Phase 1: Design the API. Phase 2: Implement handlers." \
+  --body "Phase 1: Design. Phase 2: Implement. Phase 3: Test." \
   --push
 
-# Start working on it
-nk move EXP-3001 in_progress --assign "dev"
-
-# See the board
+# View and move work
 nk board
+nk move EX-3001 in_progress --assign "dev"
 ```
 
-```
-Development Board
-─────────────────────────────────────────────────────
-Harbor (1)  │ Underway (1)    │ Arrived (0)
-            │                 │
-            │ EXP-3001        │
-            │  My First Feat… │
-            │  @dev           │
-─────────────────────────────────────────────────────
-```
+### Multi-Agent Setup
 
-## Multi-Agent Setup (NATS)
-
-For teams with multiple developers or AI agents working concurrently, point
-everyone at a shared NATS server:
+Point all agents at a shared NATS server for single-writer semantics:
 
 ```bash
-alias nk='nusy-kanban --server nats://your-host:4222'
+alias nk='nusy-kanban --server nats://192.168.8.110:4222'
+nk create expedition "Team Feature" --push
 ```
 
-The server provides single-writer semantics — ID allocation, status transitions,
-and WIP enforcement are all serialized. No lock files, no merge conflicts. See
-[NATS-SERVER.md](NATS-SERVER.md) for setup instructions.
+No lock files, no ID collisions, no merge conflicts. The server serializes all writes.
 
-## Dual Boards
+---
 
-`nusy-kanban` runs two boards from the same store:
+## Core Concepts
 
-| Board | Directory | Types | Lifecycle |
-|-------|-----------|-------|-----------|
-| **Development** | `kanban-work/` | Expedition, Chore, Voyage, Hazard, Signal | Nautical (Harbor → Arrived) |
-| **Research** | `research/` | Paper, Hypothesis, Experiment, Measure, Idea, Literature | Per-type (see below) |
+### Arrow-Native Storage
 
-Research items follow domain-appropriate lifecycles rather than a single pipeline:
+Every write goes to an Apache Arrow RecordBatch backed by Parquet snapshots.
+Queries are zero-copy columnar scans — no YAML globbing, no file I/O on reads.
+Crash safety comes from a WAL + atomic rename pattern (via `nusy-arrow-git`).
 
-- **Hypothesis**: `draft → active → retired` (validated by experiments, never "complete")
-- **Experiment**: `planned → running → complete / abandoned` (one-shot, version-bound)
-- **Paper**: `draft → outline → writing → review → complete / abandoned`
-- **Measure**: `draft → active → retired` (long-lived metrics stay active)
-- **Idea**: `captured → formalized / abandoned` (promoted to hypothesis)
-- **Literature**: `draft → active → complete`
+### Dual Boards
+
+| Board | Types | Purpose |
+|-------|-------|---------|
+| **Development** | Expedition, Chore, Voyage, Hazard, Signal | Feature work |
+| **Research** | Paper, Hypothesis, Experiment, Measure, Idea, Literature | HDD research cycle |
+
+### The Nautical Theme
+
+Development items follow a nautical lifecycle:
+
+```
+Harbor → Provisioning → Underway → Approaching Port → Arrived
+(backlog)   (ready)     (in_progress)  (review)        (done)
+```
+
+---
+
+## HDD for Autonomous Beings
+
+HDD (Hypothesis-Driven Development) is a research methodology that applies
+test-driven development rigor to scientific investigation. Where TDD writes a
+failing test first, HDD writes a falsifiable hypothesis before running an experiment.
+
+The key rule: **only validated enhancements ship.** Negative results are documented,
+not hidden.
+
+### The 6 Research Types
+
+All research items live on the **research board** and are created with `nk` commands:
+
+| Type | ID | Purpose | Auto-links |
+|------|----|---------|------------|
+| **Paper** | `PAPER-{N}` | Publication documenting validated hypotheses | Root of chain |
+| **Hypothesis** | `H{paper}.{seq}` | Falsifiable claim with quantitative target | `kb:tests` → Paper |
+| **Experiment** | `EXPR-{paper}.{seq}` | Reproducible protocol | `kb:validates` → Hypothesis |
+| **Measure** | `M-{N}` | Quantitative metric | `kb:measures` → Experiment |
+| **Idea** | `IDEA-{N}` | Raw observation or question | None |
+| **Literature** | `LIT-{N}` | Prior work survey | None |
+
+### The Cycle
+
+```
+IDEA → LITERATURE → HYPOTHESIS → EXPERIMENT → ANALYSIS → PAPER
+                                                  ↓
+                                          FAIL? → Refine → loop
+```
+
+### Example: A Being Tracks Entity Recall
+
+A being named Santiago notices entity queries are slow and runs an experiment:
 
 ```bash
-nk list --board research --type hypothesis --status active
-nk hdd status   # HDD dashboard across all research types
+# 1. Capture the observation
+nk create idea "v14.2 entity recall is poor — fastembed might outperform graph traversal" \
+    --tags "perception,v14.2" --board research --push
+# → IDEA-042
+
+# 2. Survey prior work
+nk create literature "Fastembed vs Graph Traversal Survey" --board research --push
+# → LIT-017
+
+# 3. Formalize the hypothesis (quantitative target required)
+nk create hypothesis "Fastembed improves entity retrieval by >=15% vs graph traversal" \
+    --paper 131 --board research --push
+# → H131.1 (auto-linked: H131.1 --tests--> PAPER-131)
+
+# 4. Design the experiment
+nk create experiment "Fastembed vs Graph Traversal A/B Study" \
+    --hypothesis H131.1 --board research --push
+# → EXPR-131.1 (auto-linked: EXPR-131.1 --validates--> H131.1)
+
+# 5. Define the measure
+nk create measure "Entity Retrieval Latency" \
+    --unit milliseconds --category performance --board research --push
+# → M-042
+nk update M-042 --related EXPR-131.1  # Link measure to experiment
 ```
 
-## Comparison
+### GPU Experiment Queue
 
-| Feature | nusy-kanban | Linear | GitHub Issues | Jira | Plain files |
-|---------|-------------|--------|---------------|------|-------------|
-| Storage | Arrow/Parquet | Cloud DB | Cloud DB | Cloud DB | Markdown/YAML |
-| Offline-first | Yes | No | No | No | Yes |
-| Multi-agent safe | NATS server | API | API | API | Git (conflicts) |
-| Query speed | Zero-copy columnar | API call | API call | API call | grep/glob |
-| Research workflows | HDD board | No | No | No | No |
-| Graph-native PRs | Safety gates + Y-layer | No | GitHub PRs | No | No |
-| Self-hosted | Yes (NATS) | No | GHES | Data Center | Yes (git) |
-| Crash safety | WAL + atomic rename | Managed | Managed | Managed | None |
+Experiments requiring GPU compute go through a NATS KV training queue:
 
-## Commands (22 top-level + 17 subcommands)
+```bash
+# Queue a GPU job
+nk training queue EXPR-131.1 \
+    --being santiago-bahai \
+    --corpus bahai \
+    --machine DGX
+
+# On DGX:
+nk training claim --machine DGX
+nk training complete TRAIN-001 --results research/shared/eval-data/expr1311/
+nk training fail TRAIN-001 --error "OOM at epoch 3"
+```
+
+Queue metadata is stored as RDF triples in the experiment's Arrow record, making it
+SPARQL-queryable:
+
+```bash
+nk query --sparql "SELECT ?label ?status WHERE { ?item a <https://nusy.dev/experiment/Experiment> . ?item <https://nusy.dev/experiment/runStatus> ?status . FILTER(?status = 'queued') }"
+```
+
+### HDD Diagnostics
+
+```bash
+nk hdd registry        # Full paper → hypothesis → experiment → measure chains
+nk hdd validate        # Check for orphaned items
+nk hdd validate --strict  # Fail CI on warnings
+```
+
+---
+
+## CLI Reference (22 top-level + 17 subcommands)
 
 **Core (8):** `create`, `move`, `update`, `comment`, `show`, `list`, `board`, `boards`
 **Query (6):** `query`, `stats`, `history`, `roadmap`, `blocked`, `next`
 **Planning (3):** `roadmap`, `critical-path`, `worklist`
 **Management (6):** `validate`, `rank`, `export`, `next-id`, `migrate`, `init`
-**HDD Research (8):** `hdd paper`, `hdd hypothesis`, `hdd experiment`, `hdd measure`, `hdd idea`, `hdd literature`, `hdd validate`, `hdd registry`
-**Graph-Native PRs (11):** `pr create`, `pr list`, `pr view`, `pr diff`, `pr review`, `pr merge`, `pr close`, `pr comment`, `pr checks`, `pr resolve`, `pr revise`
+**HDD Research (8):** `hdd paper`, `hdd hypothesis`, `hdd experiment`, `hdd measure`,
+  `hdd idea`, `hdd literature`, `hdd validate`, `hdd registry`
+**Training Queue (5):** `training queue`, `training list`, `training claim`,
+  `training complete`, `training fail`
+**Graph-Native PRs (11):** `pr create`, `pr list`, `pr view`, `pr diff`, `pr review`,
+  `pr merge`, `pr close`, `pr comment`, `pr checks`, `pr resolve`, `pr revise`
 
-See [CLI-REFERENCE.md](CLI-REFERENCE.md) for full flag documentation and examples.
+See [CLI-REFERENCE.md](CLI-REFERENCE.md) for full flag documentation.
+
+---
+
+## NATS Integration
+
+When `--server nats://host:4222` is provided, all commands use a request-reply
+pattern via NATS subjects:
+
+| Subject pattern | Type | Purpose |
+|----------------|------|---------|
+| `kanban.cmd.{command}` | Request-reply | All CLI commands (create, move, list, ...) |
+| `kanban.event.>` | Pub-sub (JetStream) | All mutation events (created, moved, deleted) |
+| `training_queue` | NATS KV | Distributed GPU job queue |
+
+### Event Payload Example
+
+Every mutation emits a JetStream event:
+
+```json
+{
+  "event_type": "kanban.item.moved",
+  "timestamp": "2026-04-05T14:30:00.000Z",
+  "source": "kanban-server",
+  "payload": {
+    "id": "EX-3001",
+    "from": "backlog",
+    "to": "in_progress",
+    "agent": "Mini"
+  },
+  "correlation_id": "a1b2c3d4"
+}
+```
+
+Subscribe once to `kanban.event.>` to receive all board activity:
+
+```rust
+// Rust — via noesis-ship
+bus.subscribe("kanban.event.>", |event| {
+    println!("{}: {:?}", event.event_type, event.payload);
+    Box::pin(async {})
+}).await?;
+```
+
+```python
+# Python — via noesis-ship
+await bus.subscribe("kanban.event.>", on_kanban_event)
+```
+
+---
+
+## SHACL Shape Validation
+
+All 13 item types have machine-readable SHACL shapes in Turtle (`.ttl`) format,
+shipped inside the binary. Shapes define required fields, status enums, ID patterns,
+and body section templates.
+
+### ID Patterns
+
+| Type | Pattern | Example |
+|------|---------|---------|
+| Expedition | `^EX-\d{4,}$` | `EX-3001` |
+| Voyage | `^VY-\d{4,}$` | `VY-3001` |
+| Hypothesis | `^H-\d{3,}$` | `H-131` |
+| Experiment | `^EXPR-\d{3,}` | `EXPR-131.1` |
+| Measure | `^M-\d{3,}$` | `M-042` |
+| Paper | `^PAPER-\d{3,}$` | `PAPER-131` |
+
+### Validate an Item (Python + rdflib)
+
+```python
+from rdflib import Graph, Namespace
+
+KB = Namespace("https://nusy.dev/kanban/")
+
+# Load an item graph from your Arrow store or .ttl file
+item_graph = Graph()
+item_graph.parse("my-item.ttl", format="turtle")
+
+# Load the shapes
+shapes_graph = Graph()
+shapes_graph.parse("expedition.ttl", format="turtle")
+
+# Run SHACL validation (requires pyshacl)
+from pyshacl import validate
+conforms, results_graph, results_text = validate(
+    item_graph, shacl_graph=shapes_graph
+)
+print(results_text)
+```
+
+All shapes live at `ontology/shapes/` in the source tree. See
+[EX-3667-SHACL-SHAPES.md](claude-workspace/EX-3667-SHACL-SHAPES.md) for the
+full reference (600+ lines covering all 13 types, WIP constraints, SPARQL
+validation examples, and status tables).
+
+---
+
+## Ecosystem
+
+| Crate | Role |
+|-------|------|
+| [nusy-arrow-core](https://crates.io/crates/arrow-graph-core) | Arrow schemas, graph store |
+| [nusy-arrow-git](https://crates.io/crates/arrow-graph-git) | Graph-native git primitives, WAL + atomic rename |
+| **nusy-kanban** | Kanban engine + CLI (this crate) |
+| [nusy-kanban-server](https://crates.io/crates/nusy-kanban) | NATS server for multi-agent coordination |
+
+---
+
+## Feature Flags
+
+| Flag | Enables | Default |
+|------|---------|---------|
+| `client` | NATS client (async-nats + tokio) | on |
+| `pr` | Graph-native PR workflows | on |
+| `ci` | CI runner integration | on |
+| `build` | Cranelift build/test integration | on |
+| `codegraph` | Code graph integration | on |
+| `fastembed` | Fastembed embedding backend | on |
+
+---
+
+## Comparison
+
+| Feature | nusy-kanban | Linear | GitHub Issues | Jira |
+|---------|-------------|--------|---------------|------|
+| Storage | Arrow/Parquet | Cloud DB | Cloud DB | Cloud DB |
+| Offline-first | Yes | No | No | No |
+| Multi-agent safe | NATS server | API | API | API |
+| Query speed | Zero-copy columnar | API call | API call | API call |
+| Research workflows | HDD board | No | No | No |
+| Self-hosted | Yes (NATS) | No | GHES | Data Center |
+| Crash safety | WAL + atomic rename | Managed | Managed | Managed |
+
+---
 
 ## License
 
