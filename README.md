@@ -81,6 +81,49 @@ Harbor → Provisioning → Underway → Approaching Port → Arrived
 (backlog)   (ready)     (in_progress)  (review)        (done)
 ```
 
+### Arrow Schema
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  items  (KanbanStore)                                            │
+│  ─────────────────────────────────────────────────────────────── │
+│  id, title, item_type, status, priority, assignee,               │
+│  tags, related, depends_on, body, created_at, updated_at,         │
+│  body_hash, resolution, closed_by                                │
+└──────────────────────────┬────────────────────────────────────────┘
+                           │ 1:many via id
+        ┌──────────────────┼──────────────────┐
+        ▼                  ▼                  ▼
+┌───────────────┐  ┌───────────────┐  ┌───────────────┐
+│  runs         │  │ item_comments  │  │  relations    │
+│ ─────────────  │  │ ─────────────  │  │ ─────────────  │
+│ id, item_id, │  │ id, item_id,  │  │ source_id,    │
+│ status,       │  │ comment,      │  │ target_id,    │
+│ updated_at,   │  │ author,        │  │ predicate,    │
+│ updated_by,   │  │ created_at     │  │ source_type,  │
+│ run_number    │  │                │  │ target_type   │
+└───────────────┘  └───────────────┘  └───────────────┘
+```
+
+### Persistence Flow
+
+```
+Write Request
+     │
+     ▼
+ nusy-arrow-git::save_named_batches()
+     │
+     ├─▶ Write to WAL (append-only log)
+     │
+     └─▶ Write to tmp Parquet files
+             │
+             ▼
+         atomic rename()  ← crash-safe
+             │
+             ▼
+     Final Parquet files in .nusy-kanban/
+```
+
 ---
 
 ## HDD for Autonomous Beings
@@ -310,6 +353,47 @@ validation examples, and status tables).
 | `build` | Cranelift build/test integration | on |
 | `codegraph` | Code graph integration | on |
 | `fastembed` | Fastembed embedding backend | on |
+
+---
+
+## Troubleshooting
+
+### Build Errors
+
+**`feature "client" references optional dependency "async-nats" but async-nats is not declared as optional`**
+Ensure you have `optional = true` on both `async-nats` and `tokio` in `[dependencies]`.
+
+**Missing Rust toolchain**
+Requires Rust 1.75+ (edition 2021). Install via:
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+### NATS Connection Failures
+
+**`Connection refused` when using `--server nats://...`**
+- Verify the NATS server is running: `nc -zv 192.168.8.110 4222`
+- Check server uptime on Mini: `ssh mini@192.168.8.110 uptime`
+- Fall back to local mode (omit `--server` flag) — reads/writes `.nusy-kanban/` locally
+
+**`Request timed out`**
+Default timeout is 30s for commands. Check Mini's load and retry — transient overload.
+
+### Schema Migration
+
+When upgrading, Parquet files are auto-normalized:
+- `persist.rs:normalize_batch()` appends null columns for new schema fields
+- No manual migration needed — the store handles it transparently
+- To force a full reload: delete `.nusy-kanban/*.parquet` and re-run commands
+
+### Local vs Server Mode
+
+| Flag | Behavior |
+|------|----------|
+| `--server nats://192.168.8.110:4222` | Single-writer to NATS-backed Arrow store on Mini |
+| (none) | Local mode — reads/writes `.nusy-kanban/*.parquet` in current directory |
+
+**Important:** Do not run two local-mode processes on the same directory simultaneously — Parquet writes are not atomic across files.
 
 ---
 
