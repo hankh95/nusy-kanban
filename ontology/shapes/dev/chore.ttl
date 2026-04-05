@@ -1,0 +1,88 @@
+# chore.ttl — SHACL Shape for kb:Chore (dev board)
+#
+# Chores are routine maintenance, tooling, cleanup, or infrastructure work.
+# No expedition-level planning needed — simpler structure than expeditions.
+#
+# V12/V13 equivalent: .yurtle-kanban/templates/nautical/chore.md
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+kb:ChoreShape a sh:NodeShape ;
+    sh:targetClass kb:Chore ;
+    sh:description "Routine maintenance, tooling, cleanup, or infrastructure work. No multi-phase planning needed." ;
+
+    # --- Metadata properties ---
+
+    sh:property [
+        sh:path kb:id ; sh:order 0 ;
+        sh:pattern "^CH-\\d{4,}$" ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "ID must match CH-NNNN format (e.g. CH-3210)" ] ;
+
+    sh:property [
+        sh:path kb:priority ; sh:order 1 ;
+        sh:in ( "low" "medium" "high" ) ;
+        sh:minCount 1 ;
+        sh:defaultValue "medium" ;
+        sh:message "priority required: low|medium|high" ] ;
+
+    sh:property [
+        sh:path kb:assignee ; sh:order 2 ;
+        sh:in ( "M5" "DGX" "Mini" "unassigned" ) ;
+        sh:minCount 1 ;
+        sh:defaultValue "unassigned" ;
+        sh:message "assignee required: M5|DGX|Mini|unassigned" ] ;
+
+    sh:property [
+        sh:path kb:tags ; sh:order 3 ;
+        sh:minCount 0 ;
+        sh:description "Comma-separated tags (e.g. v14,tooling)" ] ;
+
+    sh:property [
+        sh:path kb:dependsOn ; sh:order 4 ;
+        sh:minCount 0 ;
+        sh:description "IDs of blocking chores or expeditions" ] ;
+
+    sh:property [
+        sh:path kb:updated_at ; sh:order 5 ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 0 ;
+        sh:description "Auto-set on any mutation (added by EX-3244)" ] ;
+
+    sh:property [
+        sh:path kb:body ; sh:order 10 ;
+        sh:minCount 1 ;
+        sh:message "body required — use: nk templates chore" ] ;
+
+    # --- Body section structure ---
+
+    kb:requiredSection [
+        kb:sectionName "Goal" ; sh:order 1 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "One-sentence measurable outcome." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Context" ; sh:order 2 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "Why this chore exists. What it replaces, fixes, or enables." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Work" ; sh:order 3 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "- [ ] Specific task (file/crate path)\n- [ ] Specific task" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "DoD" ; sh:order 4 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "- [ ] Acceptance criterion (observable, measurable)\n- [ ] `cargo test --workspace` green (if code change)\n- [ ] PR reviewed cross-agent before merge" ;
+        kb:required true ] ;
+
+    kb:sectionOrder ( "Goal" "Context" "Work" "DoD" ) ;
+
+    kb:hasComment [ sh:node kb:CommentShape ] .

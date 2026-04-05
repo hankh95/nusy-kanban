@@ -1,0 +1,87 @@
+# feature.ttl — SHACL Shape for kb:Feature (dev board)
+#
+# Features are user-facing capabilities with acceptance criteria.
+# Similar to expeditions but framed from the user's perspective.
+#
+# V12/V13 equivalent: .yurtle-kanban/templates/software/feature.md
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+kb:FeatureShape a sh:NodeShape ;
+    sh:targetClass kb:Feature ;
+    sh:description "User-facing capability with acceptance criteria. Framed from the user's perspective." ;
+
+    # --- Metadata properties ---
+
+    sh:property [
+        sh:path kb:id ; sh:order 0 ;
+        sh:pattern "^FT-\\d{4,}$" ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "ID must match FT-NNNN format" ] ;
+
+    sh:property [
+        sh:path kb:priority ; sh:order 1 ;
+        sh:in ( "low" "medium" "high" "critical" ) ;
+        sh:minCount 1 ;
+        sh:defaultValue "medium" ;
+        sh:message "priority required: low|medium|high|critical" ] ;
+
+    sh:property [
+        sh:path kb:assignee ; sh:order 2 ;
+        sh:in ( "M5" "DGX" "Mini" "unassigned" ) ;
+        sh:minCount 1 ;
+        sh:defaultValue "unassigned" ;
+        sh:message "assignee required: M5|DGX|Mini|unassigned" ] ;
+
+    sh:property [
+        sh:path kb:tags ; sh:order 3 ;
+        sh:minCount 0 ;
+        sh:description "Comma-separated tags (e.g. v14,ux,api)" ] ;
+
+    sh:property [
+        sh:path kb:dependsOn ; sh:order 4 ;
+        sh:minCount 0 ;
+        sh:description "IDs of blocking items" ] ;
+
+    sh:property [
+        sh:path kb:related ; sh:order 5 ;
+        sh:minCount 0 ;
+        sh:description "Parent voyage or related items" ] ;
+
+    sh:property [
+        sh:path kb:updated_at ; sh:order 6 ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 0 ;
+        sh:description "Auto-set on any mutation (added by EX-3244)" ] ;
+
+    sh:property [
+        sh:path kb:body ; sh:order 10 ;
+        sh:minCount 1 ;
+        sh:message "body required — use: nk templates feature" ] ;
+
+    # --- Body section structure ---
+
+    kb:requiredSection [
+        kb:sectionName "User Story" ; sh:order 1 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "As a <user>, I want <capability> so that <benefit>." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Acceptance Criteria" ; sh:order 2 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "- [ ] Given <condition>, when <action>, then <outcome>\n- [ ] Given <condition>, when <action>, then <outcome>" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Implementation Notes" ; sh:order 3 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "Technical approach, crate paths, constraints, edge cases to handle." ;
+        kb:required false ] ;
+
+    kb:sectionOrder ( "User Story" "Acceptance Criteria" "Implementation Notes" ) ;
+
+    kb:hasComment [ sh:node kb:CommentShape ] .

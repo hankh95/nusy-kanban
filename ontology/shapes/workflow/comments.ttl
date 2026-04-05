@@ -1,0 +1,64 @@
+# comments.ttl — SHACL comment lifecycle shapes
+#
+# EX-3220 Phase 4: Comment Lifecycle Shapes
+#
+# Validates comment creation requirements and resolution transitions.
+# Works with CommentsTable from EX-3244.
+#
+# V12/V13 equivalent: none (comments were unstructured markdown sections)
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+kb:CommentCreationShape a sh:NodeShape ;
+    sh:targetClass kb:Comment ;
+    sh:description "Validates comment creation requirements" ;
+
+    sh:property [
+        sh:path kb:item_id ;
+        sh:minCount 1 ;
+        sh:message "comment must reference an existing item via item_id" ] ;
+
+    sh:property [
+        sh:path kb:author ;
+        sh:minCount 1 ;
+        sh:message "comment must have an author (M5|DGX|Mini|Captain)" ] ;
+
+    sh:property [
+        sh:path kb:body ;
+        sh:minCount 1 ;
+        sh:message "comment must have a non-empty body" ] ;
+
+    sh:property [
+        sh:path kb:created_at ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 1 ;
+        sh:message "comment must have created_at timestamp (auto-set by nk comment)" ] .
+
+kb:CommentResolutionShape a sh:NodeShape ;
+    sh:targetClass kb:Comment ;
+    sh:description "Resolution transition constraints for comments" ;
+    sh:sparql [
+        sh:message "only unresolved comments can be resolved — already-resolved comments cannot be re-resolved" ;
+        sh:select """
+            SELECT $this WHERE {
+                $this kb:resolved true .
+                $this kb:resolveAction true .
+            }""" ] .
+
+kb:CommentThreadingShape a sh:NodeShape ;
+    sh:targetClass kb:Comment ;
+    sh:description "Threading constraint: parent_comment_id must reference an existing comment" ;
+    sh:sparql [
+        sh:message "parent_comment_id must reference an existing comment in the same item" ;
+        sh:select """
+            SELECT $this WHERE {
+                $this kb:parent_comment_id ?parent .
+                $this kb:item_id ?item .
+                FILTER NOT EXISTS {
+                    ?parent_comment kb:comment_id ?parent ;
+                                    kb:item_id ?item .
+                }
+            }""" ] .

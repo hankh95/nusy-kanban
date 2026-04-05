@@ -1,0 +1,74 @@
+# idea.ttl — SHACL Shape for kb:Idea (research board)
+#
+# Ideas are lightweight captures that may be promoted to hypotheses.
+# States: captured → formalized/abandoned. No turtle block needed.
+#
+# V12/V13 equivalent: none (ideas were informal in yurtle-kanban)
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+kb:IdeaShape a sh:NodeShape ;
+    sh:targetClass kb:Idea ;
+    sh:description "Lightweight capture of a research idea. May be promoted to hypothesis. No turtle block needed." ;
+
+    # --- Metadata properties ---
+
+    sh:property [
+        sh:path kb:id ; sh:order 0 ;
+        sh:pattern "^IDEA-\\d{3,}$" ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "ID must match IDEA-NNN format (e.g. IDEA-029)" ] ;
+
+    sh:property [
+        sh:path kb:tags ; sh:order 1 ;
+        sh:minCount 0 ;
+        sh:description "Comma-separated tags (e.g. architecture,being-model)" ] ;
+
+    sh:property [
+        sh:path kb:related ; sh:order 2 ;
+        sh:minCount 0 ;
+        sh:description "Related papers or hypotheses this idea could feed" ] ;
+
+    sh:property [
+        sh:path kb:updated_at ; sh:order 3 ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 0 ;
+        sh:description "Auto-set on any mutation (added by EX-3244)" ] ;
+
+    sh:property [
+        sh:path kb:body ; sh:order 10 ;
+        sh:minCount 1 ;
+        sh:message "body required — capture the idea immediately" ] ;
+
+    # --- Body section structure ---
+
+    kb:requiredSection [
+        kb:sectionName "Origin" ; sh:order 1 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "Where did this idea come from? Conversation, reading, observation, experiment result?" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Description" ; sh:order 2 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "The idea itself. What's the insight? What could it enable?" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Domain" ; sh:order 3 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "Which domain or area of NuSy does this idea relate to?" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Next Steps" ; sh:order 4 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "What would need to happen to formalize this into a hypothesis?" ;
+        kb:required true ] ;
+
+    kb:sectionOrder ( "Origin" "Description" "Domain" "Next Steps" ) ;
+
+    kb:hasComment [ sh:node kb:CommentShape ] .

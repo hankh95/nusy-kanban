@@ -1,0 +1,102 @@
+# literature.ttl — SHACL Shape for kb:Literature (research board)
+#
+# Literature reviews track systematic reading and framework discovery.
+# States: draft → active → complete. Includes a turtle block for graph queries.
+#
+# V12/V13 equivalent: none (literature was ad-hoc in yurtle-kanban)
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix lit:  <https://nusy.dev/literature/> .
+
+kb:LiteratureShape a sh:NodeShape ;
+    sh:targetClass kb:Literature ;
+    sh:description "Systematic literature review tracking reading, framework discovery, and hypothesis implications." ;
+
+    # --- Metadata properties ---
+
+    sh:property [
+        sh:path kb:id ; sh:order 0 ;
+        sh:pattern "^LIT-\\d{3,}$" ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "ID must match LIT-NNN format (e.g. LIT-001)" ] ;
+
+    sh:property [
+        sh:path kb:tags ; sh:order 1 ;
+        sh:minCount 0 ;
+        sh:description "Comma-separated tags (e.g. neurosymbolic,metacognition)" ] ;
+
+    sh:property [
+        sh:path kb:related ; sh:order 2 ;
+        sh:minCount 0 ;
+        sh:description "Related papers or hypotheses this review informs" ] ;
+
+    sh:property [
+        sh:path kb:updated_at ; sh:order 3 ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 0 ;
+        sh:description "Auto-set on any mutation (added by EX-3244)" ] ;
+
+    sh:property [
+        sh:path kb:body ; sh:order 10 ;
+        sh:minCount 1 ;
+        sh:message "body required — use: nk templates literature" ] ;
+
+    # --- Body section structure ---
+
+    kb:requiredSection [
+        kb:sectionName "Topic" ; sh:order 1 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "What topic or question is this literature review addressing?" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Search Strategy" ; sh:order 2 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "Databases searched, keywords, date range, inclusion/exclusion criteria." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Key Findings" ; sh:order 3 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "Most important papers found, their contributions, and relevance to NuSy." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Gaps" ; sh:order 4 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "What's missing in the literature? What hasn't been tried? Where is NuSy novel?" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Framework Discovery" ; sh:order 5 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "New frameworks, taxonomies, or models discovered during reading." ;
+        kb:required false ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Hypothesis Implications" ; sh:order 6 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "How does this literature affect existing hypotheses? New hypotheses suggested?" ;
+        kb:required false ] ;
+
+    kb:requiredSection [
+        kb:sectionName "References" ; sh:order 7 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "- Author (Year). Title. Venue. DOI/URL." ;
+        kb:required true ] ;
+
+    # --- Turtle block shape ---
+    kb:TurtleBlockShape [
+        kb:requiredPrefix "lit" ;
+        kb:requiredPrefix "kb" ;
+        kb:requiredPredicate lit:topic ;
+        kb:requiredPredicate lit:searchDate ;
+        sh:description "Must include lit:topic and lit:searchDate" ;
+        kb:templateHint "```turtle\n@prefix lit: <https://nusy.dev/literature/> .\n<#LIT-XXX> a lit:LiteratureReview ;\n    lit:topic \"TODO\" ;\n    lit:searchDate \"2026-XX-XX\"^^xsd:date .\n```" ] ;
+
+    kb:sectionOrder ( "Topic" "Search Strategy" "Key Findings" "Gaps" "Framework Discovery" "Hypothesis Implications" "References" "Turtle Block" ) ;
+
+    kb:hasComment [ sh:node kb:CommentShape ] .

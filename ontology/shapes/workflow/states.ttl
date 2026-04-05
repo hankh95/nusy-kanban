@@ -1,0 +1,118 @@
+# states.ttl — SHACL valid-status constraints for all 12 item types
+#
+# EX-3220 Phase 2: Per-Type Valid Status Shapes
+#
+# Encodes which status values are valid for each type using sh:in.
+# This is the machine-readable equivalent of state_machine.rs valid-state checks.
+# Advisory in v1 — `nk validate` reads these and warns on violations.
+#
+# V12/V13 equivalent: state_machine.rs (imperative Rust logic)
+# What's new: constraints as queryable data, not hardcoded code
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# ---------------------------------------------------------------------------
+# Dev board types
+# ---------------------------------------------------------------------------
+
+kb:ExpeditionStatusShape a sh:NodeShape ;
+    sh:targetClass kb:Expedition ;
+    sh:description "Valid statuses for expeditions" ;
+    sh:property [
+        sh:path kb:status ;
+        sh:in ( "backlog" "planning" "ready" "in_progress" "review" "done" ) ;
+        sh:message "expedition status must be one of: backlog, planning, ready, in_progress, review, done" ] .
+
+kb:VoyageStatusShape a sh:NodeShape ;
+    sh:targetClass kb:Voyage ;
+    sh:description "Valid statuses for voyages" ;
+    sh:property [
+        sh:path kb:status ;
+        sh:in ( "backlog" "planning" "ready" "in_progress" "review" "done" ) ;
+        sh:message "voyage status must be one of: backlog, planning, ready, in_progress, review, done" ] .
+
+kb:ChoreStatusShape a sh:NodeShape ;
+    sh:targetClass kb:Chore ;
+    sh:description "Valid statuses for chores" ;
+    sh:property [
+        sh:path kb:status ;
+        sh:in ( "backlog" "planning" "ready" "in_progress" "review" "done" ) ;
+        sh:message "chore status must be one of: backlog, planning, ready, in_progress, review, done" ] .
+
+kb:HazardStatusShape a sh:NodeShape ;
+    sh:targetClass kb:Hazard ;
+    sh:description "Valid statuses for hazards" ;
+    sh:property [
+        sh:path kb:status ;
+        sh:in ( "backlog" "planning" "ready" "in_progress" "review" "done" ) ;
+        sh:message "hazard status must be one of: backlog, planning, ready, in_progress, review, done" ] .
+
+kb:FeatureStatusShape a sh:NodeShape ;
+    sh:targetClass kb:Feature ;
+    sh:description "Valid statuses for features" ;
+    sh:property [
+        sh:path kb:status ;
+        sh:in ( "backlog" "planning" "ready" "in_progress" "review" "done" ) ;
+        sh:message "feature status must be one of: backlog, planning, ready, in_progress, review, done" ] .
+
+kb:SignalStatusShape a sh:NodeShape ;
+    sh:targetClass kb:Signal ;
+    sh:description "Valid statuses for signals (minimal: backlog or done)" ;
+    sh:property [
+        sh:path kb:status ;
+        sh:in ( "backlog" "done" ) ;
+        sh:message "signal status must be one of: backlog, done" ] .
+
+# ---------------------------------------------------------------------------
+# Research board types
+# ---------------------------------------------------------------------------
+
+kb:HypothesisStatusShape a sh:NodeShape ;
+    sh:targetClass kb:Hypothesis ;
+    sh:description "Valid statuses for hypotheses (never complete — validated per experiment)" ;
+    sh:property [
+        sh:path kb:status ;
+        sh:in ( "draft" "active" "retired" ) ;
+        sh:message "hypothesis status must be one of: draft, active, retired" ] .
+
+kb:ExperimentStatusShape a sh:NodeShape ;
+    sh:targetClass kb:Experiment ;
+    sh:description "Valid statuses for experiments (one-shot, version-bound)" ;
+    sh:property [
+        sh:path kb:status ;
+        sh:in ( "planned" "running" "complete" "abandoned" ) ;
+        sh:message "experiment status must be one of: planned, running, complete, abandoned" ] .
+
+kb:PaperStatusShape a sh:NodeShape ;
+    sh:targetClass kb:Paper ;
+    sh:description "Valid statuses for papers (work states through writing pipeline)" ;
+    sh:property [
+        sh:path kb:status ;
+        sh:in ( "draft" "outline" "writing" "review" "complete" "abandoned" ) ;
+        sh:message "paper status must be one of: draft, outline, writing, review, complete, abandoned" ] .
+
+kb:MeasureStatusShape a sh:NodeShape ;
+    sh:targetClass kb:Measure ;
+    sh:description "Valid statuses for measures (ACF measures stay active indefinitely)" ;
+    sh:property [
+        sh:path kb:status ;
+        sh:in ( "draft" "active" "retired" ) ;
+        sh:message "measure status must be one of: draft, active, retired" ] .
+
+kb:IdeaStatusShape a sh:NodeShape ;
+    sh:targetClass kb:Idea ;
+    sh:description "Valid statuses for ideas (captured → formalized or abandoned)" ;
+    sh:property [
+        sh:path kb:status ;
+        sh:in ( "captured" "formalized" "abandoned" ) ;
+        sh:message "idea status must be one of: captured, formalized, abandoned" ] .
+
+kb:LiteratureStatusShape a sh:NodeShape ;
+    sh:targetClass kb:Literature ;
+    sh:description "Valid statuses for literature reviews" ;
+    sh:property [
+        sh:path kb:status ;
+        sh:in ( "draft" "active" "complete" ) ;
+        sh:message "literature status must be one of: draft, active, complete" ] .

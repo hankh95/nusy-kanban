@@ -1,0 +1,47 @@
+[package]
+name = "nusy-kanban"
+description = "Arrow-native kanban engine — SHACL shapes, graph-native PRs, dual boards, NATS multi-agent collaboration"
+version = "0.14.2"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/hankh95/nusy-kanban"
+keywords = ["kanban", "arrow", "neurosymbolic", "nats", "project-management"]
+categories = ["command-line-utilities", "data-structures"]
+homepage = "https://nusy.dev"
+
+[[bin]]
+name = "nusy-kanban"
+path = "src/main.rs"
+
+[dependencies]
+# Arrow ecosystem (published on crates.io)
+arrow = { version = "57", features = ["prettyprint"] }
+parquet = { version = "57", features = ["arrow"] }
+
+# NuSy crates (published on crates.io)
+nusy-arrow-core = { version = "0.14.2", features = ["parquet"] }
+nusy-arrow-git = { version = "0.14.2" }
+nusy-graph-query = { version = "0.14.2", features = ["ollama", "subprocess"] }
+noesis-ship = { version = "0.14.2" }
+
+# Core deps
+uuid = { version = "1", features = ["v4"] }
+chrono = "0.4"
+thiserror = "2"
+clap = { version = "4", features = ["derive"] }
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1"
+sha2 = "0.10"
+
+# Optional deps
+async-nats = "0.38"
+tokio = { version = "1", features = ["full"] }
+
+[features]
+default = ["client"]
+# NATS remote server mode
+client = ["dep:async-nats", "dep:tokio"]
+# Fastembed embedding backend
+fastembed = ["nusy-graph-query/fastembed"]

@@ -1,0 +1,91 @@
+# paper.ttl — SHACL Shape for kb:Paper (research board)
+#
+# Papers track research write-ups. They link to hypotheses (which link to experiments).
+# States: draft → outline → writing → review → complete/abandoned.
+#
+# V12/V13 equivalent: .yurtle-kanban/templates/hdd/paper.md
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix paper: <https://nusy.dev/paper/> .
+
+kb:PaperShape a sh:NodeShape ;
+    sh:targetClass kb:Paper ;
+    sh:description "Research paper tracking hypotheses, experiments, and write-up progress." ;
+
+    # --- Metadata properties ---
+
+    sh:property [
+        sh:path kb:id ; sh:order 0 ;
+        sh:pattern "^PAPER-\\d{3,}$" ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "ID must match PAPER-NNN format (e.g. PAPER-108)" ] ;
+
+    sh:property [
+        sh:path kb:tags ; sh:order 1 ;
+        sh:minCount 0 ;
+        sh:description "Comma-separated tags (e.g. acf,perception,v12)" ] ;
+
+    sh:property [
+        sh:path kb:related ; sh:order 2 ;
+        sh:minCount 0 ;
+        sh:description "Related hypotheses, experiments, voyages" ] ;
+
+    sh:property [
+        sh:path kb:updated_at ; sh:order 3 ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 0 ;
+        sh:description "Auto-set on any mutation (added by EX-3244)" ] ;
+
+    sh:property [
+        sh:path kb:body ; sh:order 10 ;
+        sh:minCount 1 ;
+        sh:message "body required — use: nk templates paper" ] ;
+
+    # --- Body section structure ---
+
+    kb:requiredSection [
+        kb:sectionName "Abstract" ; sh:order 1 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "Brief summary of the paper's contribution. 150-250 words." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Hypotheses Tested" ; sh:order 2 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "| H-ID | Claim | Status |\n|------|-------|--------|\n| H-XXX | ... | VALIDATED / NOT YET / REFUTED |" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Key Experiments" ; sh:order 3 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "| EXPR-ID | Hypothesis | Result Summary |\n|---------|-----------|----------------|\n| EXPR-XXX.X | H-XXX | ... |" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Outline" ; sh:order 4 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "1. Introduction\n2. Related Work\n3. Method\n4. Results\n5. Discussion\n6. Conclusion" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Submission Target" ; sh:order 5 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "Target venue, deadline, format requirements, page limit." ;
+        kb:required false ] ;
+
+    # --- Turtle block shape ---
+    kb:TurtleBlockShape [
+        kb:requiredPrefix "paper" ;
+        kb:requiredPrefix "kb" ;
+        kb:requiredPredicate paper:title ;
+        kb:requiredPredicate paper:status ;
+        kb:requiredPredicate paper:hypotheses ;
+        sh:description "Must include paper:title, paper:status, paper:hypotheses linking to H- items" ;
+        kb:templateHint "```turtle\n@prefix paper: <https://nusy.dev/paper/> .\n<#PAPER-XXX> a paper:Paper ;\n    paper:title \"TODO\" ;\n    paper:status \"draft\" ;\n    paper:hypotheses <#H-XXX> .\n```" ] ;
+
+    kb:sectionOrder ( "Abstract" "Hypotheses Tested" "Key Experiments" "Outline" "Submission Target" "Turtle Block" ) ;
+
+    kb:hasComment [ sh:node kb:CommentShape ] .

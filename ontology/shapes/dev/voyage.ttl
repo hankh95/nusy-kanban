@@ -1,0 +1,93 @@
+# voyage.ttl — SHACL Shape for kb:Voyage (dev board)
+#
+# Voyages group 3+ related expeditions with a shared goal.
+# Created before its child expeditions; body describes the campaign arc.
+#
+# V12/V13 equivalent: .yurtle-kanban/templates/nautical/voyage.md
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+kb:VoyageShape a sh:NodeShape ;
+    sh:targetClass kb:Voyage ;
+    sh:description "Campaign grouping 3+ related expeditions with a shared goal. Created before its expeditions." ;
+
+    # --- Metadata properties ---
+
+    sh:property [
+        sh:path kb:id ; sh:order 0 ;
+        sh:pattern "^VY-\\d{4,}$" ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "ID must match VY-NNNN format (e.g. VY-3211)" ] ;
+
+    sh:property [
+        sh:path kb:priority ; sh:order 1 ;
+        sh:in ( "low" "medium" "high" "critical" ) ;
+        sh:minCount 0 ;
+        sh:defaultValue "high" ;
+        sh:description "Priority level — voyages default high" ] ;
+
+    sh:property [
+        sh:path kb:tags ; sh:order 2 ;
+        sh:minCount 0 ;
+        sh:description "Comma-separated tags for filtering (e.g. v14,arc2)" ] ;
+
+    sh:property [
+        sh:path kb:related ; sh:order 3 ;
+        sh:minCount 0 ;
+        sh:description "Child expedition IDs — set after expeditions are created" ] ;
+
+    sh:property [
+        sh:path kb:updated_at ; sh:order 4 ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 0 ;
+        sh:description "Auto-set on any mutation (added by EX-3244)" ] ;
+
+    sh:property [
+        sh:path kb:body ; sh:order 10 ;
+        sh:minCount 1 ;
+        sh:message "body required — use: nk templates voyage" ] ;
+
+    # --- Body section structure ---
+
+    kb:requiredSection [
+        kb:sectionName "Problem" ; sh:order 1 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "What gap does this voyage close? What's blocked without it?\nSpecific pain: what breaks, what's missing, what forces workarounds?" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Goal" ; sh:order 2 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "The observable capability this voyage delivers. One paragraph." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Expeditions" ; sh:order 3 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "| # | ID | Title | Assignee | Depends On |\n|---|-----|-------|----------|-----------|\n| 1 | EX-XXXX | Title | Agent | — |" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Crates" ; sh:order 4 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "- **nusy-xxx** (new) — what it does\n- **nusy-yyy** (extend) — what's added" ;
+        kb:required false ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Done When" ; sh:order 5 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "Observable end state. What a being or agent can DO after this voyage ships that they couldn't before." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Related" ; sh:order 6 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "- Parent: Arc 1 / Arc 2 / Arc 3\n- Depends on: VY-XXXX (<name>)\n- Blocks: VY-XXXX (<name>)\n- Research: PAPER-XXX (if applicable)" ;
+        kb:required false ] ;
+
+    kb:sectionOrder ( "Problem" "Goal" "Expeditions" "Crates" "Done When" "Related" ) ;
+
+    kb:hasComment [ sh:node kb:CommentShape ] .

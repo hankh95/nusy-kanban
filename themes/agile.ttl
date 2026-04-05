@@ -1,0 +1,10 @@
+# agile.ttl — Agile/Scrum theme (stories, epics, sprints)
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+kb:Expedition rdfs:label "Story" ;      kb:defaultPriority "medium" ; kb:idPrefix "US" .
+kb:Voyage     rdfs:label "Epic" ;       kb:defaultPriority "high" ;   kb:idPrefix "EP" .
+kb:Chore      rdfs:label "Task" ;       kb:defaultPriority "medium" ; kb:idPrefix "TK" .
+kb:Hazard     rdfs:label "Risk" ;       kb:defaultPriority "high" ;   kb:idPrefix "RK" .
+kb:Signal     rdfs:label "Observation" ; kb:defaultPriority "low" ;   kb:idPrefix "OB" .
+kb:Feature    rdfs:label "Feature" ;    kb:defaultPriority "medium" ; kb:idPrefix "FT" .

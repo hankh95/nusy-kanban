@@ -1,0 +1,10 @@
+# nautical.ttl — NuSy default theme (ships, voyages, expeditions)
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+kb:Expedition rdfs:label "Expedition" ; kb:defaultPriority "medium" ; kb:idPrefix "EX" .
+kb:Voyage     rdfs:label "Voyage" ;     kb:defaultPriority "high" ;   kb:idPrefix "VY" .
+kb:Chore      rdfs:label "Chore" ;      kb:defaultPriority "medium" ; kb:idPrefix "CH" .
+kb:Hazard     rdfs:label "Hazard" ;     kb:defaultPriority "high" ;   kb:idPrefix "HZ" .
+kb:Signal     rdfs:label "Signal" ;     kb:defaultPriority "low" ;    kb:idPrefix "SG" .
+kb:Feature    rdfs:label "Feature" ;    kb:defaultPriority "medium" ; kb:idPrefix "FT" .

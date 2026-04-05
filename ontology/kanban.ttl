@@ -1,0 +1,225 @@
+# kanban.ttl — Core OWL Ontology for nusy-kanban
+#
+# Defines the class hierarchy and property vocabulary for all 12 nusy-kanban
+# item types. This is the foundational ontology that SHACL shapes (EX-3218/3219/3220)
+# and the template system (EX-3221) depend on.
+#
+# Namespace: kb: <https://nusy.dev/kanban/>
+#
+# Installation:
+#   Built-in: compiled into nusy-kanban binary (shipped in crates/nusy-kanban/ontology/)
+#   Project-local override: .yurtle-kanban/kanban.ttl
+#   User-global override:   ~/.config/nusy-kanban/kanban.ttl
+#
+# Override priority: project-local > user-global > built-in
+#
+# Usage by SHACL shapes:
+#   sh:targetClass kb:Expedition (requires this ontology to be loaded first)
+#
+# V12/V13 parity: none — nusy-kanban had no formal OWL ontology. This is new.
+# V14 capability: all 12 item types queryable as typed graph nodes via SPARQL.
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+# ---------------------------------------------------------------------------
+# Ontology declaration
+# ---------------------------------------------------------------------------
+
+<https://nusy.dev/kanban/> a owl:Ontology ;
+    rdfs:label "nusy-kanban Core Ontology" ;
+    rdfs:comment "OWL class hierarchy and property vocabulary for nusy-kanban item types." .
+
+# ---------------------------------------------------------------------------
+# Root item class
+# ---------------------------------------------------------------------------
+
+kb:Item a owl:Class ;
+    rdfs:label "Item" ;
+    rdfs:comment "Root class for all nusy-kanban items (dev board and research board)." .
+
+# ---------------------------------------------------------------------------
+# Board partition classes
+# ---------------------------------------------------------------------------
+
+kb:DevItem a owl:Class ;
+    rdfs:subClassOf kb:Item ;
+    rdfs:label "Dev Board Item" ;
+    rdfs:comment "Items on the development board: Expedition, Voyage, Chore, Hazard, Signal, Feature." .
+
+kb:ResearchItem a owl:Class ;
+    rdfs:subClassOf kb:Item ;
+    rdfs:label "Research Board Item" ;
+    rdfs:comment "Items on the research board: Paper, Hypothesis, Experiment, Measure, Idea, Literature." .
+
+# ---------------------------------------------------------------------------
+# Dev board item types (6)
+# ---------------------------------------------------------------------------
+
+kb:Expedition a owl:Class ;
+    rdfs:subClassOf kb:DevItem ;
+    rdfs:label "Expedition" ;
+    rdfs:comment "Multi-step feature, architecture work, or algorithm port. Requires phases, tests, and DoD." .
+
+kb:Voyage a owl:Class ;
+    rdfs:subClassOf kb:DevItem ;
+    rdfs:label "Voyage" ;
+    rdfs:comment "Campaign grouping 3+ related expeditions with a shared goal. Created before its expeditions." .
+
+kb:Chore a owl:Class ;
+    rdfs:subClassOf kb:DevItem ;
+    rdfs:label "Chore" ;
+    rdfs:comment "Routine maintenance, tooling, cleanup, or infrastructure work." .
+
+kb:Hazard a owl:Class ;
+    rdfs:subClassOf kb:DevItem ;
+    rdfs:label "Hazard" ;
+    rdfs:comment "Risk or blocker that may impact planned work. Requires mitigation plan." .
+
+kb:Signal a owl:Class ;
+    rdfs:subClassOf kb:DevItem ;
+    rdfs:label "Signal" ;
+    rdfs:comment "Observation, anomaly, or data point captured immediately. No approval needed." .
+
+kb:Feature a owl:Class ;
+    rdfs:subClassOf kb:DevItem ;
+    rdfs:label "Feature" ;
+    rdfs:comment "User-facing capability with acceptance criteria." .
+
+# ---------------------------------------------------------------------------
+# Research board item types (6)
+# ---------------------------------------------------------------------------
+
+kb:Paper a owl:Class ;
+    rdfs:subClassOf kb:ResearchItem ;
+    rdfs:label "Paper" ;
+    rdfs:comment "Research paper in progress or external paper being tracked." .
+
+kb:Hypothesis a owl:Class ;
+    rdfs:subClassOf kb:ResearchItem ;
+    rdfs:label "Hypothesis" ;
+    rdfs:comment "Testable claim about NuSy behavior. Never complete — validated per experiment and version." .
+
+kb:Experiment a owl:Class ;
+    rdfs:subClassOf kb:ResearchItem ;
+    rdfs:label "Experiment" ;
+    rdfs:comment "Concrete test run (benchmark, A/B test, spike). One-shot and version-bound." .
+
+kb:Measure a owl:Class ;
+    rdfs:subClassOf kb:ResearchItem ;
+    rdfs:label "Measure" ;
+    rdfs:comment "Metric tracked across experiments and being versions. Stays active indefinitely." .
+
+kb:Idea a owl:Class ;
+    rdfs:subClassOf kb:ResearchItem ;
+    rdfs:label "Idea" ;
+    rdfs:comment "Capture for a potential hypothesis. Promoted to Hypothesis or abandoned." .
+
+kb:Literature a owl:Class ;
+    rdfs:subClassOf kb:ResearchItem ;
+    rdfs:label "Literature" ;
+    rdfs:comment "Survey of external papers for NuSy relevance. Has a completion state." .
+
+# ---------------------------------------------------------------------------
+# Board and relation structural classes
+# ---------------------------------------------------------------------------
+
+kb:Board a owl:Class ;
+    rdfs:label "Board" ;
+    rdfs:comment "A nusy-kanban board (development or research)." .
+
+kb:DevBoard a owl:Class ;
+    rdfs:subClassOf kb:Board ;
+    rdfs:label "Development Board" .
+
+kb:ResearchBoard a owl:Class ;
+    rdfs:subClassOf kb:Board ;
+    rdfs:label "Research Board" .
+
+kb:Relation a owl:Class ;
+    rdfs:label "Relation" ;
+    rdfs:comment "A directed relation between two items. Stored in the relations Arrow table." .
+
+# ---------------------------------------------------------------------------
+# Core item datatype properties
+# (correspond to columns in the Arrow items RecordBatch schema)
+# ---------------------------------------------------------------------------
+
+kb:status a owl:DatatypeProperty ;
+    rdfs:domain kb:Item ;
+    rdfs:range xsd:string ;
+    rdfs:label "status" ;
+    rdfs:comment "Workflow state. Valid values are type-specific (see SHACL shapes)." .
+
+kb:priority a owl:DatatypeProperty ;
+    rdfs:domain kb:Item ;
+    rdfs:range xsd:string ;
+    rdfs:label "priority" ;
+    rdfs:comment "Priority level: low | medium | high | critical." .
+
+kb:assignee a owl:DatatypeProperty ;
+    rdfs:domain kb:Item ;
+    rdfs:range xsd:string ;
+    rdfs:label "assignee" ;
+    rdfs:comment "Agent responsible for this item: M5 | DGX | Mini | unassigned." .
+
+kb:body a owl:DatatypeProperty ;
+    rdfs:domain kb:Item ;
+    rdfs:range xsd:string ;
+    rdfs:label "body" ;
+    rdfs:comment "Markdown body content (phases, context, DoD, turtle blocks, etc.)." .
+
+kb:tags a owl:DatatypeProperty ;
+    rdfs:domain kb:Item ;
+    rdfs:range xsd:string ;
+    rdfs:label "tags" ;
+    rdfs:comment "Comma-separated tags for filtering (e.g. v14,rust,shacl)." .
+
+# ---------------------------------------------------------------------------
+# Relation object properties
+# (correspond to predicate values in the Arrow relations RecordBatch)
+# ---------------------------------------------------------------------------
+
+kb:dependsOn a owl:ObjectProperty ;
+    rdfs:domain kb:Item ;
+    rdfs:range kb:Item ;
+    rdfs:label "dependsOn" ;
+    rdfs:comment "This item is blocked by the target item. Set immediately after creation." .
+
+kb:related a owl:ObjectProperty ;
+    rdfs:domain kb:Item ;
+    rdfs:range kb:Item ;
+    rdfs:label "related" ;
+    rdfs:comment "Informational link between items (e.g. expedition → parent voyage)." .
+
+kb:implements a owl:ObjectProperty ;
+    rdfs:domain kb:Expedition ;
+    rdfs:range kb:Voyage ;
+    rdfs:label "implements" ;
+    rdfs:comment "An expedition implements (delivers work toward) a voyage." .
+
+kb:spawns a owl:ObjectProperty ;
+    rdfs:domain kb:Voyage ;
+    rdfs:range kb:Expedition ;
+    rdfs:label "spawns" ;
+    rdfs:comment "A voyage spawns (creates and coordinates) expeditions." .
+
+kb:tests a owl:ObjectProperty ;
+    rdfs:domain kb:Hypothesis ;
+    rdfs:range kb:Paper ;
+    rdfs:label "tests" ;
+    rdfs:comment "A hypothesis is associated with (and tested in the context of) a paper." .
+
+kb:validates a owl:ObjectProperty ;
+    rdfs:domain kb:Experiment ;
+    rdfs:range kb:Hypothesis ;
+    rdfs:label "validates" ;
+    rdfs:comment "An experiment validates (tests and produces evidence for or against) a hypothesis." .
+
+kb:measures a owl:ObjectProperty ;
+    rdfs:domain kb:Measure ;
+    rdfs:range kb:Experiment ;
+    rdfs:label "measures" ;
+    rdfs:comment "A measure is collected during (and tracks outcomes of) an experiment." .

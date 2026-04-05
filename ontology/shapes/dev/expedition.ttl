@@ -1,0 +1,119 @@
+# expedition.ttl — SHACL Shape for kb:Expedition (dev board)
+#
+# Full content model: metadata field validation + body section structure
+# + comment shape reference + template generation annotations.
+#
+# Consumed by:
+#   EX-3221 (nk templates): generates body template from kb:requiredSection entries
+#   EX-3223 (nk validate): checks sh:minCount/sh:in/sh:pattern violations
+#
+# V12/V13 equivalent: .yurtle-kanban/templates/nautical/expedition.md
+# What's new: machine-readable, queryable, theme-independent, validates on write
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+kb:ExpeditionShape a sh:NodeShape ;
+    sh:targetClass kb:Expedition ;
+    sh:description "Multi-phase feature, architecture work, or algorithm port. Requires phases, tests, and DoD." ;
+
+    # --- Metadata properties ---
+
+    sh:property [
+        sh:path kb:id ; sh:order 0 ;
+        sh:pattern "^EX-\\d{4,}$" ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "ID must match EX-NNNN format (e.g. EX-3218)" ] ;
+
+    sh:property [
+        sh:path kb:priority ; sh:order 1 ;
+        sh:in ( "low" "medium" "high" "critical" ) ;
+        sh:minCount 1 ;
+        sh:defaultValue "medium" ;
+        sh:message "priority required: low|medium|high|critical" ] ;
+
+    sh:property [
+        sh:path kb:assignee ; sh:order 2 ;
+        sh:in ( "M5" "DGX" "Mini" "unassigned" ) ;
+        sh:minCount 1 ;
+        sh:defaultValue "unassigned" ;
+        sh:message "assignee required: M5|DGX|Mini|unassigned" ] ;
+
+    sh:property [
+        sh:path kb:tags ; sh:order 3 ;
+        sh:minCount 0 ;
+        sh:description "Comma-separated tags for filtering (e.g. v14,rust,shacl)" ] ;
+
+    sh:property [
+        sh:path kb:dependsOn ; sh:order 4 ;
+        sh:minCount 0 ;
+        sh:description "IDs of blocking items — set immediately after creation via nk update EX-XXXX --depends-on" ] ;
+
+    sh:property [
+        sh:path kb:related ; sh:order 5 ;
+        sh:minCount 0 ;
+        sh:description "Parent voyage or related items (e.g. VY-3211) — set via nk update EX-XXXX --related" ] ;
+
+    sh:property [
+        sh:path kb:updated_at ; sh:order 6 ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 0 ;
+        sh:description "Auto-set on any mutation (added by EX-3244)" ] ;
+
+    sh:property [
+        sh:path kb:priority_rank ; sh:order 7 ;
+        sh:datatype xsd:integer ;
+        sh:minCount 0 ;
+        sh:description "Numeric priority for sorting: 1=highest (added by EX-3244)" ] ;
+
+    sh:property [
+        sh:path kb:body ; sh:order 10 ;
+        sh:minCount 1 ;
+        sh:message "body required — use: nk templates expedition" ] ;
+
+    # --- Body section structure (drives nk templates expedition output) ---
+
+    kb:requiredSection [
+        kb:sectionName "V12/V13 Parity Check" ; sh:order 1 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "- V12/V13 equivalent: `path/to/file.py` (or \"none — this is new\")\n- What's ported: <algorithm description>\n- What's new in V14: <what didn't exist before>" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Context" ; sh:order 2 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "Why this expedition exists. What it unblocks. What problem it solves." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Phase 1: <Name>" ; sh:order 3 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "- [ ] Specific deliverable with crate path: `crates/nusy-xxx/src/yyy.rs`\n- [ ] Specific deliverable" ;
+        kb:required true ;
+        kb:repeatable true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Tests" ; sh:order 4 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "- [ ] `cargo test -p nusy-xxx` — <what test verifies>\n- [ ] Integration test: <scenario and assertion>" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Definition of Done" ; sh:order 5 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "- [ ] `cargo test --workspace` green\n- [ ] `cargo clippy --workspace -- -D warnings` clean\n- [ ] PR reviewed cross-agent before merge\n- [ ] <specific functional criterion>" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Constraints" ; sh:order 6 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "- Do NOT: <common over-engineering pattern to avoid>\n- Scope limited to: <explicit boundary>" ;
+        kb:required true ] ;
+
+    # --- Section ordering for template generation ---
+    kb:sectionOrder ( "V12/V13 Parity Check" "Context" "Phases" "Tests" "Definition of Done" "Constraints" ) ;
+
+    # --- Comment shape reference ---
+    kb:hasComment [ sh:node kb:CommentShape ] .

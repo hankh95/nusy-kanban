@@ -1,0 +1,81 @@
+# measure.ttl — SHACL Shape for kb:Measure (research board)
+#
+# Measures track quantitative metrics across experiments. ACF measures stay
+# active indefinitely. States: draft → active → retired.
+# Must include a turtle block with measure metadata.
+#
+# V12/V13 equivalent: .yurtle-kanban/templates/hdd/measure.md
+
+@prefix kb:      <https://nusy.dev/kanban/> .
+@prefix sh:      <http://www.w3.org/ns/shacl#> .
+@prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix measure: <https://nusy.dev/measure/> .
+
+kb:MeasureShape a sh:NodeShape ;
+    sh:targetClass kb:Measure ;
+    sh:description "Quantitative metric tracked across experiments. ACF measures stay active indefinitely." ;
+
+    # --- Metadata properties ---
+
+    sh:property [
+        sh:path kb:id ; sh:order 0 ;
+        sh:pattern "^M-\\d{3,}$" ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "ID must match M-NNN format (e.g. M-098)" ] ;
+
+    sh:property [
+        sh:path kb:tags ; sh:order 1 ;
+        sh:minCount 0 ;
+        sh:description "Comma-separated tags (e.g. acf,latency,safety)" ] ;
+
+    sh:property [
+        sh:path kb:related ; sh:order 2 ;
+        sh:minCount 0 ;
+        sh:description "Related experiments or hypotheses this measure feeds" ] ;
+
+    sh:property [
+        sh:path kb:updated_at ; sh:order 3 ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 0 ;
+        sh:description "Auto-set on any mutation (added by EX-3244)" ] ;
+
+    sh:property [
+        sh:path kb:body ; sh:order 10 ;
+        sh:minCount 1 ;
+        sh:message "body required — use: nk templates measure" ] ;
+
+    # --- Body section structure ---
+
+    kb:requiredSection [
+        kb:sectionName "Description" ; sh:order 1 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "What this measure captures and why it matters. Which ACF dimension does it feed?" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Specification" ; sh:order 2 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "| Property | Value |\n|----------|-------|\n| Unit | ... |\n| Category | ... |\n| Collection Method | ... |\n| Threshold | ... |" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Historical Values" ; sh:order 3 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "| Date | Value | Experiment | Notes |\n|------|-------|-----------|-------|\n| 2026-XX-XX | ... | EXPR-XXX | ... |" ;
+        kb:required true ] ;
+
+    # --- Turtle block shape ---
+    kb:TurtleBlockShape [
+        kb:requiredPrefix "measure" ;
+        kb:requiredPrefix "kb" ;
+        kb:requiredPredicate measure:name ;
+        kb:requiredPredicate measure:unit ;
+        kb:requiredPredicate measure:category ;
+        kb:requiredPredicate measure:collectionMethod ;
+        sh:description "Must include measure:name, unit, category, collectionMethod" ;
+        kb:templateHint "```turtle\n@prefix measure: <https://nusy.dev/measure/> .\n<#M-XXX> a measure:Measure ;\n    measure:name \"TODO\" ;\n    measure:unit \"ms\" ;\n    measure:category \"performance\" ;\n    measure:collectionMethod \"automated\" .\n```" ] ;
+
+    kb:sectionOrder ( "Description" "Specification" "Historical Values" "Turtle Block" ) ;
+
+    kb:hasComment [ sh:node kb:CommentShape ] .

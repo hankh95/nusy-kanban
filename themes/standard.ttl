@@ -1,0 +1,10 @@
+# standard.ttl — Generic/neutral theme (items, projects, tasks)
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+kb:Expedition rdfs:label "Work Item" ;  kb:defaultPriority "medium" ; kb:idPrefix "WI" .
+kb:Voyage     rdfs:label "Project" ;    kb:defaultPriority "high" ;   kb:idPrefix "PJ" .
+kb:Chore      rdfs:label "Task" ;       kb:defaultPriority "medium" ; kb:idPrefix "TK" .
+kb:Hazard     rdfs:label "Issue" ;      kb:defaultPriority "high" ;   kb:idPrefix "IS" .
+kb:Signal     rdfs:label "Note" ;       kb:defaultPriority "low" ;    kb:idPrefix "NT" .
+kb:Feature    rdfs:label "Feature" ;    kb:defaultPriority "medium" ; kb:idPrefix "FT" .

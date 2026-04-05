@@ -1,0 +1,29 @@
+# mutations.ttl — SHACL updated_at auto-set rule documentation
+#
+# EX-3220 Phase 5: updated_at Auto-Set Rule
+#
+# Documents the invariant that any item mutation must set updated_at.
+# The auto-set is IMPLEMENTED in Rust code (EX-3244 touch_updated_at()).
+# This shape documents the invariant for `nk validate` to check.
+#
+# Advisory — checks that mutated items have a recent updated_at.
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+kb:MutationTimestampShape a sh:NodeShape ;
+    sh:targetClass kb:Item ;
+    sh:description """Any mutation that changes item state or metadata MUST set updated_at.
+Mutations include: status change, body update, title/priority/assignee/tags edit,
+comment add, depends_on/related update, resolution/closed_by set.
+Implementation: EX-3244 touch_updated_at() in crud.rs.""" ;
+    sh:sparql [
+        sh:message "updated_at must be set on any item mutation — items in non-backlog status with null updated_at indicate a missed mutation" ;
+        sh:select """
+            SELECT $this WHERE {
+                $this kb:status ?s .
+                FILTER(?s != "backlog")
+                FILTER NOT EXISTS { $this kb:updated_at ?t }
+            }""" ] .

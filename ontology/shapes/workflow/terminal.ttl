@@ -1,0 +1,46 @@
+# terminal.ttl — SHACL terminal state + resolution constraints
+#
+# EX-3220 Phase 3: Terminal State + Resolution Shapes
+#
+# Items in terminal states (done, complete, abandoned, retired) must have
+# a resolution set. Advisory in v1.
+#
+# V12/V13 equivalent: state_machine.rs resolution validation
+# What's new: constraint as SHACL data, inspectable via `nk shapes`
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+kb:TerminalResolutionShape a sh:NodeShape ;
+    sh:targetClass kb:Item ;
+    sh:description "Terminal items (done/complete/abandoned/retired) must have a resolution set" ;
+    sh:sparql [
+        sh:message "terminal items require resolution: completed|superseded|wont_do|duplicate|obsolete|merged" ;
+        sh:select """
+            SELECT $this WHERE {
+                $this kb:status ?s .
+                FILTER(?s IN ("done", "complete", "abandoned", "retired"))
+                FILTER NOT EXISTS { $this kb:resolution ?r }
+            }""" ] .
+
+kb:ResolutionValuesShape a sh:NodeShape ;
+    sh:targetClass kb:Item ;
+    sh:description "Resolution must be one of the valid values" ;
+    sh:property [
+        sh:path kb:resolution ;
+        sh:in ( "completed" "superseded" "wont_do" "duplicate" "obsolete" "merged" ) ;
+        sh:minCount 0 ;
+        sh:message "resolution must be one of: completed, superseded, wont_do, duplicate, obsolete, merged" ] .
+
+kb:ClosedByShape a sh:NodeShape ;
+    sh:targetClass kb:Item ;
+    sh:description "Items with resolution should have closed_by provenance" ;
+    sh:sparql [
+        sh:message "items with resolution should have closed_by set (PROP-XXX or agent name)" ;
+        sh:select """
+            SELECT $this WHERE {
+                $this kb:resolution ?r .
+                FILTER NOT EXISTS { $this kb:closedBy ?cb }
+            }""" ] .

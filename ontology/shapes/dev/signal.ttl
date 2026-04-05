@@ -1,0 +1,77 @@
+# signal.ttl — SHACL Shape for kb:Signal (dev board)
+#
+# Signals capture observations, anomalies, and data points immediately.
+# No approval needed — capture first, triage later.
+# Minimal structure: the observation IS the signal.
+#
+# V12/V13 equivalent: .yurtle-kanban/templates/nautical/signal.md
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+kb:SignalShape a sh:NodeShape ;
+    sh:targetClass kb:Signal ;
+    sh:description "Observation, anomaly, or data point. Capture immediately, no approval needed." ;
+
+    # --- Metadata properties ---
+
+    sh:property [
+        sh:path kb:id ; sh:order 0 ;
+        sh:pattern "^SG-\\d{4,}$" ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "ID must match SG-NNNN format" ] ;
+
+    sh:property [
+        sh:path kb:tags ; sh:order 1 ;
+        sh:minCount 0 ;
+        sh:description "Comma-separated tags for categorizing (e.g. v14,performance,memory)" ] ;
+
+    sh:property [
+        sh:path kb:related ; sh:order 2 ;
+        sh:minCount 0 ;
+        sh:description "Related expeditions or voyages this signal is relevant to" ] ;
+
+    sh:property [
+        sh:path kb:updated_at ; sh:order 3 ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 0 ;
+        sh:description "Auto-set on any mutation (added by EX-3244)" ] ;
+
+    # Note: assignee and priority are optional for signals (capture-first philosophy)
+    sh:property [
+        sh:path kb:priority ; sh:order 4 ;
+        sh:in ( "low" "medium" "high" "critical" ) ;
+        sh:minCount 0 ;
+        sh:defaultValue "low" ;
+        sh:description "Priority — signals default low, triage after capture" ] ;
+
+    sh:property [
+        sh:path kb:body ; sh:order 10 ;
+        sh:minCount 1 ;
+        sh:message "body required — what was observed, when, where, under what conditions" ] ;
+
+    # --- Body section structure ---
+
+    kb:requiredSection [
+        kb:sectionName "Observation" ; sh:order 1 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "What was observed? Specific, factual description. Raw data if available." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Conditions" ; sh:order 2 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "When was this observed? On which machine? Under what workload or configuration?" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Raw Data" ; sh:order 3 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "Paste raw output, metrics, logs, or measurements here." ;
+        kb:required false ] ;
+
+    kb:sectionOrder ( "Observation" "Conditions" "Raw Data" ) ;
+
+    kb:hasComment [ sh:node kb:CommentShape ] .

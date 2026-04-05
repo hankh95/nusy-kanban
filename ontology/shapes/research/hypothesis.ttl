@@ -1,0 +1,111 @@
+# hypothesis.ttl — SHACL Shape for kb:Hypothesis (research board)
+#
+# Hypotheses are testable claims about NuSy behavior. They are never "complete" —
+# they remain active and are validated per-experiment per-version.
+# Must link to a paper via kb:tests. Must include a turtle block.
+#
+# V12/V13 equivalent: .yurtle-kanban/templates/hdd/hypothesis.md
+# What's new: cross-type linking enforced (hypothesis→paper), turtle block shape
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix hyp:  <https://nusy.dev/hypothesis/> .
+
+kb:HypothesisShape a sh:NodeShape ;
+    sh:targetClass kb:Hypothesis ;
+    sh:description "Testable claim about NuSy behavior — never complete, validated per experiment per version." ;
+
+    # --- Metadata properties ---
+
+    sh:property [
+        sh:path kb:id ; sh:order 0 ;
+        sh:pattern "^H-\\d{3,}$" ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "ID must match H-NNN format (e.g. H-015)" ] ;
+
+    sh:property [
+        sh:path kb:tests ; sh:order 1 ;
+        sh:class kb:Paper ;
+        sh:minCount 1 ;
+        sh:message "hypothesis must link to a paper via kb:tests (e.g. PAPER-108)" ] ;
+
+    sh:property [
+        sh:path kb:acfDimension ; sh:order 2 ;
+        sh:in ( "AC1" "AC2" "AC3" "AC4" "AC5" ) ;
+        sh:minCount 0 ;
+        sh:description "ACF dimension this hypothesis validates (AC1–AC5)" ] ;
+
+    sh:property [
+        sh:path kb:tags ; sh:order 3 ;
+        sh:minCount 0 ;
+        sh:description "Comma-separated tags (e.g. perception,v12,dual-process)" ] ;
+
+    sh:property [
+        sh:path kb:related ; sh:order 4 ;
+        sh:minCount 0 ;
+        sh:description "Related experiments, measures, or other hypotheses" ] ;
+
+    sh:property [
+        sh:path kb:updated_at ; sh:order 5 ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 0 ;
+        sh:description "Auto-set on any mutation (added by EX-3244)" ] ;
+
+    sh:property [
+        sh:path kb:body ; sh:order 10 ;
+        sh:minCount 1 ;
+        sh:message "body required — use: nk templates hypothesis" ] ;
+
+    # --- Body section structure ---
+
+    kb:requiredSection [
+        kb:sectionName "Claim" ; sh:order 1 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "The testable claim, stated precisely. One or two sentences." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Rationale" ; sh:order 2 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "Why we believe this claim — theoretical basis, prior evidence, or architectural reasoning." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Variables" ; sh:order 3 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "- **Independent:** what we manipulate\n- **Dependent:** what we measure\n- **Control:** what we hold constant" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Experiments" ; sh:order 4 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "| EXPR-ID | Version | Status | Result |\n|---------|---------|--------|--------|\n| EXPR-XXX.X | v12.1 | planned | — |" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Falsifiable By" ; sh:order 5 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "What evidence would disprove this hypothesis? Specific metric thresholds or observable outcomes." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "ACF Connection" ; sh:order 6 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "Which ACF dimension(s) does this feed? How does the measure map to the composite score?" ;
+        kb:required false ] ;
+
+    # --- Turtle block shape ---
+    kb:TurtleBlockShape [
+        kb:requiredPrefix "hyp" ;
+        kb:requiredPrefix "kb" ;
+        kb:requiredPredicate hyp:claim ;
+        kb:requiredPredicate hyp:testedBy ;
+        kb:requiredPredicate hyp:acfDimension ;
+        sh:description "Must include hyp:claim, hyp:testedBy linking to paper" ;
+        kb:templateHint "```turtle\n@prefix hyp: <https://nusy.dev/hypothesis/> .\n@prefix kb:  <https://nusy.dev/kanban/> .\n<#H-XXX> a hyp:Hypothesis ;\n    hyp:claim \"TODO\" ;\n    hyp:testedBy <#PAPER-XXX> .\n```" ] ;
+
+    kb:sectionOrder ( "Claim" "Rationale" "Variables" "Experiments" "Falsifiable By" "ACF Connection" "Turtle Block" ) ;
+
+    kb:hasComment [ sh:node kb:CommentShape ] .

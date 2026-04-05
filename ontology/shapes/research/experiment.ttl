@@ -1,0 +1,125 @@
+# experiment.ttl — SHACL Shape for kb:Experiment (research board)
+#
+# Experiments are one-shot, version-bound evaluations that validate hypotheses.
+# Must link to a hypothesis via kb:validates. Must include a turtle block with
+# expr:runStatus for DGX training queue integration.
+#
+# V12/V13 equivalent: .yurtle-kanban/templates/hdd/experiment.md
+# What's new: kb:validates cross-link enforced, turtle block with runStatus guidance
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix expr: <https://nusy.dev/experiment/> .
+
+kb:ExperimentShape a sh:NodeShape ;
+    sh:targetClass kb:Experiment ;
+    sh:description "One-shot, version-bound evaluation that validates a hypothesis. States: planned → running → complete/abandoned." ;
+
+    # --- Metadata properties ---
+
+    sh:property [
+        sh:path kb:id ; sh:order 0 ;
+        sh:pattern "^EXPR-\\d{3,}" ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "ID must match EXPR-NNN or EXPR-NNN.N format (e.g. EXPR-131.1)" ] ;
+
+    sh:property [
+        sh:path kb:validates ; sh:order 1 ;
+        sh:class kb:Hypothesis ;
+        sh:minCount 1 ;
+        sh:message "experiment must link to a hypothesis via kb:validates (e.g. H-015)" ] ;
+
+    sh:property [
+        sh:path kb:tags ; sh:order 2 ;
+        sh:minCount 0 ;
+        sh:description "Comma-separated tags (e.g. v12.1,gpu,perception)" ] ;
+
+    sh:property [
+        sh:path kb:related ; sh:order 3 ;
+        sh:minCount 0 ;
+        sh:description "Related expeditions, measures, or other experiments" ] ;
+
+    sh:property [
+        sh:path kb:updated_at ; sh:order 4 ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 0 ;
+        sh:description "Auto-set on any mutation (added by EX-3244)" ] ;
+
+    sh:property [
+        sh:path kb:body ; sh:order 10 ;
+        sh:minCount 1 ;
+        sh:message "body required — use: nk templates experiment" ] ;
+
+    # --- Body section structure ---
+
+    kb:requiredSection [
+        kb:sectionName "Purpose" ; sh:order 1 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "What this experiment tests and why. Which hypothesis does it validate?" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Method — Participants" ; sh:order 2 ;
+        kb:headingLevel 3 ;
+        kb:templateHint "Being(s) under test, version, domain. E.g.: santiago-childrens-literature-v12.1" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Method — Materials" ; sh:order 3 ;
+        kb:headingLevel 3 ;
+        kb:templateHint "Training data, eval sets, adapters. File paths and sizes." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Method — Procedure" ; sh:order 4 ;
+        kb:headingLevel 3 ;
+        kb:templateHint "Step-by-step experimental procedure. Numbered list." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Method — Configuration" ; sh:order 5 ;
+        kb:headingLevel 3 ;
+        kb:templateHint "| Parameter | Value |\n|-----------|-------|\n| model | ... |\n| learning_rate | ... |" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Analysis Plan" ; sh:order 6 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "How results will be analyzed — metrics, thresholds, comparison method." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Expected Results" ; sh:order 7 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "What we expect to see if the hypothesis holds. Specific metric targets." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Falsifiable By" ; sh:order 8 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "What would invalidate the results — confounds, alternative explanations." ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Data Location" ; sh:order 9 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "| Artifact | Path |\n|----------|------|\n| Eval JSON | research/shared/eval-data/... |\n| Adapter | ... |" ;
+        kb:required true ] ;
+
+    # --- Turtle block shape ---
+    kb:TurtleBlockShape [
+        kb:requiredPrefix "expr" ;
+        kb:requiredPrefix "kb" ;
+        kb:requiredPredicate expr:hypothesis ;
+        kb:requiredPredicate expr:runStatus ;
+        kb:requiredPredicate expr:runOn ;
+        kb:requiredPredicate expr:requiresGPU ;
+        kb:requiredPredicate expr:estimatedMinutes ;
+        sh:description "Must include expr:runStatus (planned|running|done) for DGX queue integration" ;
+        kb:templateHint "```turtle\n@prefix expr: <https://nusy.dev/experiment/> .\n<#EXPR-XXX.X> a expr:Experiment ;\n    expr:hypothesis <#H-XXX> ;\n    expr:runStatus \"planned\" ;\n    expr:runOn \"DGX\" ;\n    expr:requiresGPU \"true\"^^xsd:boolean ;\n    expr:estimatedMinutes 60 .\n```" ] ;
+
+    kb:sectionOrder ( "Purpose" "Method — Participants" "Method — Materials" "Method — Procedure" "Method — Configuration" "Analysis Plan" "Expected Results" "Falsifiable By" "Data Location" "Turtle Block" ) ;
+
+    kb:hasComment [ sh:node kb:CommentShape ] .

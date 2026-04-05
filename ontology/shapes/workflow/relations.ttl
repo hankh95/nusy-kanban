@@ -1,0 +1,90 @@
+# relations.ttl — SHACL valid relation predicate shapes
+#
+# EX-3220 Phase 6: Valid Relation Predicate Shapes
+#
+# Encodes which predicates are valid between which type pairs.
+# These correspond to the relation predicates defined in kanban.ttl (EX-3217).
+#
+# V12/V13 equivalent: hardcoded validation in relations table code
+# What's new: constraints as inspectable SHACL data
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# --- Generic relations (any type → any type) ---
+
+kb:DependsOnShape a sh:NodeShape ;
+    sh:targetClass kb:Item ;
+    sh:description "dependsOn: any item can depend on any other item" ;
+    sh:property [
+        sh:path kb:dependsOn ;
+        sh:class kb:Item ;
+        sh:minCount 0 ;
+        sh:description "IDs of blocking items — BFS traversal for critical path" ] .
+
+kb:RelatedShape a sh:NodeShape ;
+    sh:targetClass kb:Item ;
+    sh:description "related: any item can be related to any other item" ;
+    sh:property [
+        sh:path kb:related ;
+        sh:class kb:Item ;
+        sh:minCount 0 ;
+        sh:description "Loosely connected items — for context, not blocking" ] .
+
+kb:BlocksShape a sh:NodeShape ;
+    sh:targetClass kb:Item ;
+    sh:description "blocks: any item can block any other item (inverse of dependsOn)" ;
+    sh:property [
+        sh:path kb:blocks ;
+        sh:class kb:Item ;
+        sh:minCount 0 ;
+        sh:description "Items this item blocks — derived from dependsOn inverse" ] .
+
+# --- Typed relations (specific domain → range) ---
+
+kb:ImplementsShape a sh:NodeShape ;
+    sh:targetClass kb:Expedition ;
+    sh:description "implements: Expedition → Voyage (expedition implements a voyage's goal)" ;
+    sh:property [
+        sh:path kb:implements ;
+        sh:class kb:Voyage ;
+        sh:minCount 0 ;
+        sh:description "The voyage this expedition is part of" ] .
+
+kb:SpawnsShape a sh:NodeShape ;
+    sh:targetClass kb:Voyage ;
+    sh:description "spawns: Voyage → Expedition (voyage spawns child expeditions)" ;
+    sh:property [
+        sh:path kb:spawns ;
+        sh:class kb:Expedition ;
+        sh:minCount 0 ;
+        sh:description "Child expeditions created by this voyage" ] .
+
+kb:TestsShape a sh:NodeShape ;
+    sh:targetClass kb:Hypothesis ;
+    sh:description "tests: Hypothesis → Paper (hypothesis tests a paper's claims)" ;
+    sh:property [
+        sh:path kb:tests ;
+        sh:class kb:Paper ;
+        sh:minCount 1 ;
+        sh:message "hypothesis must link to a paper via kb:tests" ] .
+
+kb:ValidatesShape a sh:NodeShape ;
+    sh:targetClass kb:Experiment ;
+    sh:description "validates: Experiment → Hypothesis (experiment validates a hypothesis)" ;
+    sh:property [
+        sh:path kb:validates ;
+        sh:class kb:Hypothesis ;
+        sh:minCount 1 ;
+        sh:message "experiment must link to a hypothesis via kb:validates" ] .
+
+kb:MeasuresShape a sh:NodeShape ;
+    sh:targetClass kb:Measure ;
+    sh:description "measures: Measure → Experiment (measure tracks data from experiments)" ;
+    sh:property [
+        sh:path kb:measures ;
+        sh:class kb:Experiment ;
+        sh:minCount 0 ;
+        sh:description "Experiments this measure collects data from" ] .

@@ -1,0 +1,68 @@
+# comment.ttl — SHACL Shape for kb:Comment
+#
+# Comments are review/discussion entries on any item. Stored in CommentsTable
+# (Arrow RecordBatch, defined by EX-3244). The shape here describes the
+# content model; the Arrow schema in schema.rs provides the storage layer.
+#
+# CommentsTable schema (EX-3244):
+#   comment_id   Utf8 non-null   CMT-{item_id}-{seq} e.g. CMT-EX-3218-001
+#   item_id      Utf8 non-null   Item this comment belongs to
+#   author       Utf8 non-null   Agent name
+#   body         Utf8 non-null   Markdown comment text
+#   created_at   Timestamp       When created
+#   parent_comment_id  Utf8 nullable   For threaded replies
+#   resolved     Boolean non-null default false
+#
+# Note: shapes reference this via kb:hasComment [ sh:node kb:CommentShape ]
+# Migration: legacy comments stored as runs rows (to_status="comment")
+# are migrated to CommentsTable on store load (EX-3244 Phase 4).
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+kb:CommentShape a sh:NodeShape ;
+    sh:targetClass kb:Comment ;
+    sh:description "Review or discussion comment on any kanban item. Stored in CommentsTable (EX-3244)." ;
+
+    sh:property [
+        sh:path kb:comment_id ; sh:order 0 ;
+        sh:pattern "^CMT-[A-Z]+-\\d{4,}-\\d{3,}$" ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "comment_id must match CMT-{TYPE}-{NNNN}-{SEQ} format (e.g. CMT-EX-3218-001)" ] ;
+
+    sh:property [
+        sh:path kb:item_id ; sh:order 1 ;
+        sh:minCount 1 ;
+        sh:message "item_id required — which item this comment belongs to" ] ;
+
+    sh:property [
+        sh:path kb:author ; sh:order 2 ;
+        sh:in ( "M5" "DGX" "Mini" "Captain" ) ;
+        sh:minCount 1 ;
+        sh:message "author required: M5|DGX|Mini|Captain" ] ;
+
+    sh:property [
+        sh:path kb:body ; sh:order 3 ;
+        sh:minCount 1 ;
+        sh:message "body required — comment text (markdown)" ] ;
+
+    sh:property [
+        sh:path kb:created_at ; sh:order 4 ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 1 ;
+        sh:message "created_at required (auto-set by nk comment)" ] ;
+
+    sh:property [
+        sh:path kb:parent_comment_id ; sh:order 5 ;
+        sh:pattern "^CMT-[A-Z]+-\\d{4,}-\\d{3,}$" ;
+        sh:minCount 0 ;
+        sh:description "For threaded replies — ID of the parent comment" ] ;
+
+    sh:property [
+        sh:path kb:resolved ; sh:order 6 ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 0 ;
+        sh:defaultValue "false" ;
+        sh:description "Whether this comment has been resolved (default: false)" ] .

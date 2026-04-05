@@ -1,0 +1,81 @@
+# hazard.ttl — SHACL Shape for kb:Hazard (dev board)
+#
+# Hazards capture risks or blockers that may impact planned work.
+# Require a mitigation plan. Default priority: high (risks need attention).
+#
+# V12/V13 equivalent: none (new in nusy-kanban)
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+kb:HazardShape a sh:NodeShape ;
+    sh:targetClass kb:Hazard ;
+    sh:description "Risk or blocker that may impact planned work. Requires mitigation plan. Default priority: high." ;
+
+    # --- Metadata properties ---
+
+    sh:property [
+        sh:path kb:id ; sh:order 0 ;
+        sh:pattern "^HZ-\\d{4,}$" ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "ID must match HZ-NNNN format" ] ;
+
+    sh:property [
+        sh:path kb:priority ; sh:order 1 ;
+        sh:in ( "low" "medium" "high" "critical" ) ;
+        sh:minCount 1 ;
+        sh:defaultValue "high" ;
+        sh:message "priority required: low|medium|high|critical (hazards default high)" ] ;
+
+    sh:property [
+        sh:path kb:tags ; sh:order 2 ;
+        sh:minCount 0 ;
+        sh:description "Comma-separated tags" ] ;
+
+    sh:property [
+        sh:path kb:related ; sh:order 3 ;
+        sh:minCount 0 ;
+        sh:description "Items affected by this hazard" ] ;
+
+    sh:property [
+        sh:path kb:updated_at ; sh:order 4 ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 0 ;
+        sh:description "Auto-set on any mutation (added by EX-3244)" ] ;
+
+    sh:property [
+        sh:path kb:body ; sh:order 10 ;
+        sh:minCount 1 ;
+        sh:message "body required — use: nk templates hazard" ] ;
+
+    # --- Body section structure ---
+
+    kb:requiredSection [
+        kb:sectionName "Risk Description" ; sh:order 1 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "What is the risk? What could go wrong? How likely?" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Impact Assessment" ; sh:order 2 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "Which expeditions/voyages are affected? What breaks if this hazard materializes?" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Mitigation Plan" ; sh:order 3 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "- [ ] Specific mitigation step\n- [ ] Owner and timeline" ;
+        kb:required true ] ;
+
+    kb:requiredSection [
+        kb:sectionName "Resolution" ; sh:order 4 ;
+        kb:headingLevel 2 ;
+        kb:templateHint "How was this hazard resolved or accepted? What was the outcome?" ;
+        kb:required false ] ;
+
+    kb:sectionOrder ( "Risk Description" "Impact Assessment" "Mitigation Plan" "Resolution" ) ;
+
+    kb:hasComment [ sh:node kb:CommentShape ] .

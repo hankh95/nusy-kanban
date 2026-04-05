@@ -1,0 +1,128 @@
+# groups.ttl — sh:PropertyGroup definitions for dev board shapes
+#
+# Property groups define the section headers used in template generation
+# (EX-3221). Each group has an rdfs:label that becomes the ## heading
+# when nk templates generates a body template.
+#
+# These are referenced by expedition.ttl, voyage.ttl, chore.ttl, hazard.ttl,
+# signal.ttl, and feature.ttl via sh:group / kb:requiredSection.
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# ---------------------------------------------------------------------------
+# Expedition groups
+# ---------------------------------------------------------------------------
+
+kb:ParityCheckGroup a sh:PropertyGroup ;
+    rdfs:label "V12/V13 Parity Check" ;
+    sh:order 1 .
+
+kb:ContextGroup a sh:PropertyGroup ;
+    rdfs:label "Context" ;
+    sh:order 2 .
+
+kb:PhasesGroup a sh:PropertyGroup ;
+    rdfs:label "Phases" ;
+    sh:order 3 .
+
+kb:TestsGroup a sh:PropertyGroup ;
+    rdfs:label "Tests" ;
+    sh:order 4 .
+
+kb:DoDGroup a sh:PropertyGroup ;
+    rdfs:label "Definition of Done" ;
+    sh:order 5 .
+
+kb:ConstraintsGroup a sh:PropertyGroup ;
+    rdfs:label "Constraints" ;
+    sh:order 6 .
+
+# ---------------------------------------------------------------------------
+# Voyage groups
+# ---------------------------------------------------------------------------
+
+kb:ProblemGroup a sh:PropertyGroup ;
+    rdfs:label "Problem" ;
+    sh:order 1 .
+
+kb:GoalGroup a sh:PropertyGroup ;
+    rdfs:label "Goal" ;
+    sh:order 2 .
+
+kb:ExpeditionsTableGroup a sh:PropertyGroup ;
+    rdfs:label "Expeditions" ;
+    sh:order 3 .
+
+kb:CratesGroup a sh:PropertyGroup ;
+    rdfs:label "Crates" ;
+    sh:order 4 .
+
+kb:DoneWhenGroup a sh:PropertyGroup ;
+    rdfs:label "Done When" ;
+    sh:order 5 .
+
+kb:RelatedGroup a sh:PropertyGroup ;
+    rdfs:label "Related" ;
+    sh:order 6 .
+
+# ---------------------------------------------------------------------------
+# Chore groups
+# ---------------------------------------------------------------------------
+
+kb:WorkGroup a sh:PropertyGroup ;
+    rdfs:label "Work" ;
+    sh:order 3 .
+
+kb:AcceptanceCriteriaGroup a sh:PropertyGroup ;
+    rdfs:label "Acceptance Criteria" ;
+    sh:order 4 .
+
+# ---------------------------------------------------------------------------
+# Hazard groups
+# ---------------------------------------------------------------------------
+
+kb:RiskGroup a sh:PropertyGroup ;
+    rdfs:label "Risk Description" ;
+    sh:order 1 .
+
+kb:ImpactGroup a sh:PropertyGroup ;
+    rdfs:label "Impact Assessment" ;
+    sh:order 2 .
+
+kb:MitigationGroup a sh:PropertyGroup ;
+    rdfs:label "Mitigation Plan" ;
+    sh:order 3 .
+
+kb:ResolutionGroup a sh:PropertyGroup ;
+    rdfs:label "Resolution" ;
+    sh:order 4 .
+
+# ---------------------------------------------------------------------------
+# Signal groups
+# ---------------------------------------------------------------------------
+
+kb:ObservationGroup a sh:PropertyGroup ;
+    rdfs:label "Observation" ;
+    sh:order 1 .
+
+kb:ConditionsGroup a sh:PropertyGroup ;
+    rdfs:label "Conditions" ;
+    sh:order 2 .
+
+kb:RawDataGroup a sh:PropertyGroup ;
+    rdfs:label "Raw Data" ;
+    sh:order 3 .
+
+# ---------------------------------------------------------------------------
+# Feature groups
+# ---------------------------------------------------------------------------
+
+kb:UserStoryGroup a sh:PropertyGroup ;
+    rdfs:label "User Story" ;
+    sh:order 1 .
+
+kb:ImplementationNotesGroup a sh:PropertyGroup ;
+    rdfs:label "Implementation Notes" ;
+    sh:order 3 .

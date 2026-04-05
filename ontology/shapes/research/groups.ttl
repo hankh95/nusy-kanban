@@ -1,0 +1,173 @@
+# groups.ttl — sh:PropertyGroup definitions for research board shapes
+#
+# Property groups define the section headers used in template generation.
+# Each group has an rdfs:label that becomes the ## heading when
+# nk templates generates a body template.
+#
+# Shared group: kb:TurtleBlockGroup — used by hypothesis, experiment, paper,
+# measure, and literature (5 of 6 research types).
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# ---------------------------------------------------------------------------
+# Shared: Turtle Block group (used by 5 of 6 research types)
+# ---------------------------------------------------------------------------
+
+kb:TurtleBlockGroup a sh:PropertyGroup ;
+    rdfs:label "Turtle Block" ;
+    sh:order 99 ;
+    rdfs:comment "Turtle RDF block — required for graph queries. See type-specific TurtleBlockShape for required predicates." .
+
+# ---------------------------------------------------------------------------
+# Hypothesis groups
+# ---------------------------------------------------------------------------
+
+kb:ClaimGroup a sh:PropertyGroup ;
+    rdfs:label "Claim" ;
+    sh:order 1 .
+
+kb:RationaleGroup a sh:PropertyGroup ;
+    rdfs:label "Rationale" ;
+    sh:order 2 .
+
+kb:VariablesGroup a sh:PropertyGroup ;
+    rdfs:label "Variables" ;
+    sh:order 3 .
+
+kb:ExperimentLinkGroup a sh:PropertyGroup ;
+    rdfs:label "Experiments" ;
+    sh:order 4 .
+
+kb:FalsifiableGroup a sh:PropertyGroup ;
+    rdfs:label "Falsifiable By" ;
+    sh:order 5 .
+
+kb:ACFConnectionGroup a sh:PropertyGroup ;
+    rdfs:label "ACF Connection" ;
+    sh:order 6 .
+
+# ---------------------------------------------------------------------------
+# Experiment groups
+# ---------------------------------------------------------------------------
+
+kb:PurposeGroup a sh:PropertyGroup ;
+    rdfs:label "Purpose" ;
+    sh:order 1 .
+
+kb:MethodParticipantsGroup a sh:PropertyGroup ;
+    rdfs:label "Method — Participants" ;
+    sh:order 2 .
+
+kb:MethodMaterialsGroup a sh:PropertyGroup ;
+    rdfs:label "Method — Materials" ;
+    sh:order 3 .
+
+kb:MethodProcedureGroup a sh:PropertyGroup ;
+    rdfs:label "Method — Procedure" ;
+    sh:order 4 .
+
+kb:MethodConfigGroup a sh:PropertyGroup ;
+    rdfs:label "Method — Configuration" ;
+    sh:order 5 .
+
+kb:AnalysisPlanGroup a sh:PropertyGroup ;
+    rdfs:label "Analysis Plan" ;
+    sh:order 6 .
+
+kb:ExpectedResultsGroup a sh:PropertyGroup ;
+    rdfs:label "Expected Results" ;
+    sh:order 7 .
+
+kb:DataLocationGroup a sh:PropertyGroup ;
+    rdfs:label "Data Location" ;
+    sh:order 9 .
+
+# ---------------------------------------------------------------------------
+# Paper groups
+# ---------------------------------------------------------------------------
+
+kb:AbstractGroup a sh:PropertyGroup ;
+    rdfs:label "Abstract" ;
+    sh:order 1 .
+
+kb:HypothesesTestedGroup a sh:PropertyGroup ;
+    rdfs:label "Hypotheses Tested" ;
+    sh:order 2 .
+
+kb:KeyExperimentsGroup a sh:PropertyGroup ;
+    rdfs:label "Key Experiments" ;
+    sh:order 3 .
+
+kb:OutlineGroup a sh:PropertyGroup ;
+    rdfs:label "Outline" ;
+    sh:order 4 .
+
+kb:SubmissionTargetGroup a sh:PropertyGroup ;
+    rdfs:label "Submission Target" ;
+    sh:order 5 .
+
+# ---------------------------------------------------------------------------
+# Measure groups
+# ---------------------------------------------------------------------------
+
+kb:DescriptionGroup a sh:PropertyGroup ;
+    rdfs:label "Description" ;
+    sh:order 1 .
+
+kb:SpecificationGroup a sh:PropertyGroup ;
+    rdfs:label "Specification" ;
+    sh:order 2 .
+
+kb:HistoricalValuesGroup a sh:PropertyGroup ;
+    rdfs:label "Historical Values" ;
+    sh:order 3 .
+
+# ---------------------------------------------------------------------------
+# Idea groups
+# ---------------------------------------------------------------------------
+
+kb:OriginGroup a sh:PropertyGroup ;
+    rdfs:label "Origin" ;
+    sh:order 1 .
+
+kb:DomainGroup a sh:PropertyGroup ;
+    rdfs:label "Domain" ;
+    sh:order 3 .
+
+kb:NextStepsGroup a sh:PropertyGroup ;
+    rdfs:label "Next Steps" ;
+    sh:order 4 .
+
+# ---------------------------------------------------------------------------
+# Literature groups
+# ---------------------------------------------------------------------------
+
+kb:TopicGroup a sh:PropertyGroup ;
+    rdfs:label "Topic" ;
+    sh:order 1 .
+
+kb:SearchStrategyGroup a sh:PropertyGroup ;
+    rdfs:label "Search Strategy" ;
+    sh:order 2 .
+
+kb:KeyFindingsGroup a sh:PropertyGroup ;
+    rdfs:label "Key Findings" ;
+    sh:order 3 .
+
+kb:GapsGroup a sh:PropertyGroup ;
+    rdfs:label "Gaps" ;
+    sh:order 4 .
+
+kb:FrameworkDiscoveryGroup a sh:PropertyGroup ;
+    rdfs:label "Framework Discovery" ;
+    sh:order 5 .
+
+kb:HypothesisImplicationsGroup a sh:PropertyGroup ;
+    rdfs:label "Hypothesis Implications" ;
+    sh:order 6 .
+
+kb:ReferencesGroup a sh:PropertyGroup ;
+    rdfs:label "References" ;
+    sh:order 7 .

@@ -1,0 +1,41 @@
+# boards.ttl — SHACL WIP limit constraints for dev and research boards
+#
+# EX-3220 Phase 1: Board-Level WIP Shapes
+#
+# SPARQLConstraints that fire when WIP limits are exceeded.
+# Advisory-only in v1 — shown as warnings by `nk validate`, not blockers.
+# The SPARQL is DATA (not code) — `nk validate` implements evaluation.
+#
+# V12/V13 equivalent: .yurtle-kanban/config.yaml wip_limits section
+# What's new: inspectable SHACL constraints, queryable via `nk shapes`
+
+@prefix kb:   <https://nusy.dev/kanban/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+kb:DevBoardWIPShape a sh:NodeShape ;
+    sh:targetClass kb:DevBoard ;
+    sh:description "WIP limit for dev board: max 4 items in_progress simultaneously" ;
+    sh:sparql [
+        sh:message "WIP limit exceeded: max 4 items in_progress on dev board" ;
+        sh:select """
+            SELECT $this WHERE {
+                { SELECT (COUNT(?item) AS ?count) WHERE {
+                    ?item kb:board "development" ; kb:status "in_progress" .
+                } }
+                FILTER(?count > 4)
+            }""" ] .
+
+kb:ResearchBoardWIPShape a sh:NodeShape ;
+    sh:targetClass kb:ResearchBoard ;
+    sh:description "WIP limit for research board: max 5 active items simultaneously" ;
+    sh:sparql [
+        sh:message "WIP limit exceeded: max 5 active items on research board" ;
+        sh:select """
+            SELECT $this WHERE {
+                { SELECT (COUNT(?item) AS ?count) WHERE {
+                    ?item kb:board "research" ; kb:status "active" .
+                } }
+                FILTER(?count > 5)
+            }""" ] .
