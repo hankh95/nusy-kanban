@@ -7,6 +7,7 @@ use arrow::array::Array;
 use clap::{Parser, Subcommand};
 use nusy_arrow_git::commit::Commit;
 use nusy_arrow_git::save::{persist_commits, restore_commits};
+use nusy_kanban::backup::{self, BackupConfig};
 use nusy_kanban::config::ConfigFile;
 use nusy_kanban::critical_path;
 use nusy_kanban::crud::CreateItemInput;
@@ -472,6 +473,25 @@ enum Commands {
     /// Unified config management — view and modify settings from all sources (VY-3510)
     #[command(subcommand)]
     Config(ConfigCommands),
+
+    /// Snapshot the kanban Arrow store to a timestamped backup directory.
+    Backup {
+        /// List available snapshots and exit (does not create a backup).
+        #[arg(long)]
+        list: bool,
+        /// Show detailed info about a specific snapshot.
+        #[arg(long)]
+        inspect: Option<String>,
+    },
+
+    /// Restore the kanban Arrow store from a backup snapshot.
+    Restore {
+        /// Snapshot name to restore (e.g. snapshot-2026-04-07_055839).
+        snapshot: String,
+        /// Confirm restore — required because this overwrites the live store.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 /// Config subcommands (VY-3510 EX-3512)
@@ -701,6 +721,74 @@ fn run_config_command(cmd: &ConfigCommands) {
             println!("Config store not yet connected to NATS KV. Pending EX-3514.");
         }
     }
+}
+
+/// Run `nk backup` — snapshot or list the kanban Arrow store.
+fn run_backup_command(
+    root: &std::path::Path,
+    list: bool,
+    inspect: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = BackupConfig::default();
+
+    if list {
+        let snapshots = backup::list_snapshots(&config)?;
+        if snapshots.is_empty() {
+            println!("No snapshots found in {:?}", config.destination);
+        } else {
+            println!("Snapshots in {:?}:", config.destination);
+            for snap in &snapshots {
+                println!(
+                    "  {}  version={}  commits={}",
+                    snap.name, snap.version, snap.commit_count
+                );
+            }
+        }
+        return Ok(());
+    }
+
+    if let Some(snapshot_name) = inspect {
+        let snapshots = backup::list_snapshots(&config)?;
+        let found = snapshots.iter().find(|s| s.name == snapshot_name);
+        if let Some(snap) = found {
+            println!("Snapshot: {}", snap.name);
+            println!("  path: {:?}", snap.path);
+            if let Some(created) = &snap.created_at {
+                println!("  created: {}", created);
+            }
+            println!("  version: {}", snap.version);
+            println!("  commits: {}", snap.commit_count);
+        } else {
+            return Err(format!("Snapshot '{}' not found", snapshot_name).into());
+        }
+        return Ok(());
+    }
+
+    // Default: create a new snapshot
+    let snapshot_dir = backup::create_snapshot(&config, root)?;
+    println!(
+        "Backup created: {}",
+        snapshot_dir
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+    );
+    Ok(())
+}
+
+/// Run `nk restore` — restore the kanban Arrow store from a snapshot.
+fn run_restore_command(
+    root: &std::path::Path,
+    snapshot: &str,
+    force: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = BackupConfig::default();
+    let restored = backup::restore_snapshot(snapshot, &config, root, force)?;
+    println!(
+        "Restored from: {}",
+        restored.file_name().unwrap_or_default().to_string_lossy()
+    );
+    Ok(())
 }
 
 fn run_materialize_command(
@@ -1253,6 +1341,24 @@ fn main() {
             *verify,
             *dry_run,
         );
+        return;
+    }
+
+    // Backup command runs locally — snapshot or list Arrow store.
+    if let Commands::Backup { list, inspect } = &cli.command {
+        if let Err(e) = run_backup_command(&root, *list, inspect.clone()) {
+            eprintln!("Error: {e}");
+            process::exit(1);
+        }
+        return;
+    }
+
+    // Restore command runs locally — restore from snapshot.
+    if let Commands::Restore { snapshot, force } = &cli.command {
+        if let Err(e) = run_restore_command(&root, snapshot, *force) {
+            eprintln!("Error: {e}");
+            process::exit(1);
+        }
         return;
     }
 
@@ -2660,13 +2766,18 @@ fn run(root: PathBuf, command: Commands) -> Result<(), Box<dyn std::error::Error
         Commands::Build { .. }
         | Commands::Test { .. }
         | Commands::Materialize { .. }
-        | Commands::Config(_) => {
-            unreachable!("Build/Test/Materialize/Config intercepted before run()")
+        | Commands::Config(_)
+        | Commands::Backup { .. }
+        | Commands::Restore { .. } => {
+            unreachable!("Build/Test/Materialize/Config/Backup/Restore intercepted before run()")
         }
 
         #[cfg(not(feature = "build"))]
-        Commands::Materialize { .. } | Commands::Config(_) => {
-            return Err("Materialize and Config commands require the 'build' feature. Rebuild with --features build.".into());
+        Commands::Materialize { .. }
+        | Commands::Config(_)
+        | Commands::Backup { .. }
+        | Commands::Restore { .. } => {
+            return Err("Materialize, Config, Backup, and Restore commands require the 'build' feature. Rebuild with --features build.".into());
         }
     }
 
@@ -3524,6 +3635,10 @@ fn command_to_nats(command: &Commands) -> (String, serde_json::Value) {
         }
         Commands::Materialize { .. } | Commands::Config(_) => {
             unreachable!("Materialize/Config intercepted before NATS dispatch")
+        }
+        // Backup and Restore run locally — they are intercepted before NATS dispatch.
+        Commands::Backup { .. } | Commands::Restore { .. } => {
+            unreachable!("Backup/Restore intercepted before NATS dispatch")
         }
     }
 }
