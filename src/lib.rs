@@ -13,8 +13,8 @@
 //! - **Display** — terminal table and board rendering
 //! - **Export** — markdown + next-id output
 //! - **Migration** — parse Yurtle markdown files into Arrow tables
-//! - **Backup** — snapshot Arrow store to timestamped backup directories
 
+pub mod backup;
 pub mod base64;
 #[cfg(feature = "client")]
 pub mod client;
@@ -53,8 +53,6 @@ pub mod theme;
 pub mod training_queue;
 pub mod turtle_builder;
 pub mod validate;
-
-pub mod backup;
 
 pub use comments::CommentsStore;
 pub use config::{BoardConfig, ConfigFile};
