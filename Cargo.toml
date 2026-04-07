@@ -1,7 +1,7 @@
 [package]
 name = "nusy-kanban"
 description = "Arrow-native kanban engine — SHACL shapes, graph-native PRs, dual boards, NATS multi-agent collaboration"
-version = "0.15.0"
+version = "0.15.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/hankh95/nusy-kanban"

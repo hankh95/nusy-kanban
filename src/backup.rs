@@ -91,7 +91,7 @@ impl Default for BackupConfig {
         Self {
             destination: PathBuf::from("/Volumes/mate-mini/nusy-kanban-backup"),
             format: BackupFormat::Timestamp,
-            retention: 10,
+            retention: 0, // infinite — Arrow store is small, keep all snapshots
             schedule: "daily".to_string(),
         }
     }
