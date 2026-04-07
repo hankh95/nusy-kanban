@@ -12,12 +12,12 @@
 //! - `nk pr checks` → show safety gate status
 
 use clap::Subcommand;
-use nusy_graph_review::{
-    CiResultStore, CommentStore, CreateProposalInput, ProposalStore,
-    check_approval_gate, classify_proposal, default_gates, safety_gates::ChangeEntry,
-};
 #[cfg(feature = "ci")]
 use nusy_graph_review::{CiResultInput, CiStatus};
+use nusy_graph_review::{
+    CiResultStore, CommentStore, CreateProposalInput, ProposalStore, check_approval_gate,
+    classify_proposal, default_gates, safety_gates::ChangeEntry,
+};
 
 /// PR subcommands — mirrors `gh pr`.
 #[derive(Subcommand)]
