@@ -863,7 +863,7 @@ fn col_str(batch: &RecordBatch, col: usize) -> &StringArray {
         .expect("string column")
 }
 
-fn list_values(arr: &ListArray, row: usize) -> Vec<String> {
+pub fn list_values(arr: &ListArray, row: usize) -> Vec<String> {
     if arr.is_null(row) {
         return Vec::new();
     }
@@ -875,6 +875,306 @@ fn list_values(arr: &ListArray, row: usize) -> Vec<String> {
     (0..str_arr.len())
         .map(|i| str_arr.value(i).to_string())
         .collect()
+}
+
+/// Folder name for each item type in the materialize layout.
+fn materialize_folder(item_type: &str, _board: &str) -> &'static str {
+    match item_type {
+        // Development board
+        "expedition" => "expeditions",
+        "chore" => "chores",
+        "voyage" => "voyages",
+        "hazard" => "hazards",
+        "signal" => "signals",
+        "feature" => "features",
+        // Research board
+        "paper" => "papers",
+        "hypothesis" => "hypotheses",
+        "experiment" => "experiments",
+        "measure" => "measures",
+        "literature" => "literature",
+        "idea" => "ideas",
+        // Fallback: use type as folder name
+        _ => {
+            eprintln!("Warning: unknown item type '{}', using 'misc'", item_type);
+            "misc"
+        }
+    }
+}
+
+/// Materialize Arrow items to a folder-per-type layout.
+///
+/// Writes each item as `nusy-kanban/{work,research}/{type}/{id}.md`
+/// where {work,research} is derived from the board name and {type} maps
+/// to the folder names above.
+///
+/// Returns the number of files written.
+pub fn kanban_materialize(
+    batches: &[RecordBatch],
+    board: &str,
+    out_dir: &std::path::Path,
+) -> std::io::Result<usize> {
+    use arrow::array::{Array, ListArray};
+    use std::io::Write;
+
+    let ids_col = col_str_idx(batches, "id");
+    let titles_col = col_str_idx(batches, "title");
+    let types_col = col_str_idx(batches, "item_type");
+    let statuses_col = col_str_idx(batches, "status");
+    let priorities_col = col_str_idx(batches, "priority");
+    let assignees_col = col_str_idx(batches, "assignee");
+    let tags_col_idx = batch_col_idx(batches, "tags");
+    let related_col_idx = batch_col_idx(batches, "related");
+    let depends_col_idx = batch_col_idx(batches, "depends_on");
+    let body_col_idx = batch_col_idx(batches, "body");
+
+    let board_folder = if board == "development" { "work" } else { "research" };
+    let mut files_written = 0usize;
+    let mut errors = 0usize;
+
+    for batch in batches {
+        let ids = arrow::array::as_string_array(batch.column(ids_col));
+        let titles = arrow::array::as_string_array(batch.column(titles_col));
+        let types = arrow::array::as_string_array(batch.column(types_col));
+        let statuses = arrow::array::as_string_array(batch.column(statuses_col));
+        let priorities = arrow::array::as_string_array(batch.column(priorities_col));
+        let assignees = arrow::array::as_string_array(batch.column(assignees_col));
+
+        let tags_col = batch
+            .column(tags_col_idx)
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .expect("tags column");
+        let related_col = batch
+            .column(related_col_idx)
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .expect("related column");
+        let depends_col = batch
+            .column(depends_col_idx)
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .expect("depends_on column");
+
+        let bodies = arrow::array::as_string_array(batch.column(body_col_idx));
+
+        for i in 0..batch.num_rows() {
+            let id = ids.value(i);
+            let title = titles.value(i);
+            let item_type = types.value(i);
+            let status = statuses.value(i);
+
+            let folder = materialize_folder(item_type, board);
+            let type_folder = out_dir.join(board_folder).join(folder);
+
+            // Create parent directories
+            if let Err(e) = std::fs::create_dir_all(&type_folder) {
+                eprintln!("  ERROR creating {}: {}", type_folder.display(), e);
+                errors += 1;
+                continue;
+            }
+
+            // Sanitize id for filesystem: some IDs contain embedded type prefixes like "expedition/EXP-P008-001"
+            let safe_id = id.replace('/', "-");
+            let file_path = type_folder.join(format!("{}.md", safe_id));
+            let mut file = match std::fs::File::create(&file_path) {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("  ERROR creating {}: {}", file_path.display(), e);
+                    errors += 1;
+                    continue;
+                }
+            };
+
+            // Write YAML frontmatter
+            writeln!(file, "---").unwrap();
+            writeln!(file, "id: {}", id).unwrap();
+            writeln!(file, "title: \"{}\"", escape_frontmatter(title)).unwrap();
+            writeln!(file, "type: {}", item_type).unwrap();
+            writeln!(file, "status: {}", status).unwrap();
+
+            if !priorities.is_null(i) {
+                writeln!(file, "priority: {}", priorities.value(i)).unwrap();
+            }
+            if !assignees.is_null(i) {
+                writeln!(file, "assignee: {}", assignees.value(i)).unwrap();
+            }
+
+            let tags = list_values(tags_col, i);
+            if !tags.is_empty() {
+                writeln!(file, "tags: [{}]", tags.join(", ")).unwrap();
+            }
+            let related = list_values(related_col, i);
+            if !related.is_empty() {
+                writeln!(file, "related: [{}]", related.join(", ")).unwrap();
+            }
+            let depends = list_values(depends_col, i);
+            if !depends.is_empty() {
+                writeln!(file, "depends_on: [{}]", depends.join(", ")).unwrap();
+            }
+
+            writeln!(file, "---").unwrap();
+            writeln!(file).unwrap();
+
+            // Write body or default heading
+            if !bodies.is_null(i) {
+                let body = bodies.value(i).trim();
+                if !body.is_empty() {
+                    writeln!(file, "{}", body).unwrap();
+                } else {
+                    writeln!(file, "# {}: {}", id, title).unwrap();
+                }
+            } else {
+                writeln!(file, "# {}: {}", id, title).unwrap();
+            }
+
+            files_written += 1;
+        }
+    }
+
+    if errors > 0 {
+        eprintln!("  {} errors during materialization", errors);
+    }
+
+    Ok(files_written)
+}
+
+/// Materialize a single Arrow item to its folder-per-type layout.
+///
+/// Writes the item as `nusy-kanban/{work,research}/{type}/{id}/{id}.md`.
+/// Returns the path that was written, or an error.
+///
+/// The batch is assumed to be a single-row batch (e.g., from `store.get_item(id)`
+/// which returns `batch.slice(i, 1)`).
+pub fn kanban_materialize_single(
+    batch: &RecordBatch,
+    out_dir: &std::path::Path,
+) -> std::io::Result<std::path::PathBuf> {
+    use arrow::array::{Array, ListArray};
+    use std::io::Write;
+
+    debug_assert_eq!(batch.num_rows(), 1, "kanban_materialize_single requires exactly 1 row");
+
+    let schema = batch.schema();
+    let idx = |name| schema.index_of(name).unwrap();
+
+    let ids = arrow::array::as_string_array(batch.column(idx("id")));
+    let titles = arrow::array::as_string_array(batch.column(idx("title")));
+    let types = arrow::array::as_string_array(batch.column(idx("item_type")));
+    let statuses = arrow::array::as_string_array(batch.column(idx("status")));
+    let priorities = arrow::array::as_string_array(batch.column(idx("priority")));
+    let assignees = arrow::array::as_string_array(batch.column(idx("assignee")));
+    let bodies = arrow::array::as_string_array(batch.column(idx("body")));
+
+    let tags_idx = idx("tags");
+    let related_idx = idx("related");
+    let depends_idx = idx("depends_on");
+
+    let tags_col = batch
+        .column(tags_idx)
+        .as_any()
+        .downcast_ref::<ListArray>()
+        .expect("tags column");
+    let related_col = batch
+        .column(related_idx)
+        .as_any()
+        .downcast_ref::<ListArray>()
+        .expect("related column");
+    let depends_col = batch
+        .column(depends_idx)
+        .as_any()
+        .downcast_ref::<ListArray>()
+        .expect("depends_on column");
+
+    let i = 0; // Single row
+    let id = ids.value(i);
+    let title = titles.value(i);
+    let item_type = types.value(i);
+    let status = statuses.value(i);
+
+    let folder = materialize_folder(item_type, "");
+    let id_upper = id.to_uppercase();
+    let board_folder = if id_upper.starts_with("EX") || id_upper.starts_with("CH")
+        || id_upper.starts_with("VY") || id_upper.starts_with("HZ")
+        || id_upper.starts_with("SG") || id_upper.starts_with("FT")
+    {
+        "work"
+    } else {
+        "research"
+    };
+    let safe_id = id.replace('/', "-");
+    let item_folder = out_dir.join(board_folder).join(folder).join(safe_id.clone());
+
+    // Create parent directories
+    std::fs::create_dir_all(&item_folder)?;
+
+    // Sanitize id for filesystem: some IDs contain embedded slashes
+    let file_path = item_folder.join(format!("{}.md", safe_id));
+    let mut file = std::fs::File::create(&file_path)?;
+
+    // Write YAML frontmatter
+    writeln!(file, "---")?;
+    writeln!(file, "id: {}", id)?;
+    writeln!(file, "title: \"{}\"", escape_frontmatter(title))?;
+    writeln!(file, "type: {}", item_type)?;
+    writeln!(file, "status: {}", status)?;
+
+    if !priorities.is_null(i) {
+        writeln!(file, "priority: {}", priorities.value(i))?;
+    }
+    if !assignees.is_null(i) {
+        writeln!(file, "assignee: {}", assignees.value(i))?;
+    }
+
+    let tags = list_values(tags_col, i);
+    if !tags.is_empty() {
+        writeln!(file, "tags: [{}]", tags.join(", "))?;
+    }
+    let related = list_values(related_col, i);
+    if !related.is_empty() {
+        writeln!(file, "related: [{}]", related.join(", "))?;
+    }
+    let depends = list_values(depends_col, i);
+    if !depends.is_empty() {
+        writeln!(file, "depends_on: [{}]", depends.join(", "))?;
+    }
+
+    writeln!(file, "---")?;
+    writeln!(file)?;
+
+    // Write body or default heading
+    if !bodies.is_null(i) {
+        let body = bodies.value(i).trim();
+        if !body.is_empty() {
+            writeln!(file, "{}", body)?;
+        } else {
+            writeln!(file, "# {}: {}", id, title)?;
+        }
+    } else {
+        writeln!(file, "# {}: {}", id, title)?;
+    }
+
+    Ok(file_path)
+}
+
+/// Escape a string for safe YAML frontmatter quoting.
+fn escape_frontmatter(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', " ")
+}
+
+/// Get column index by name from first batch.
+fn col_str_idx(batches: &[RecordBatch], name: &str) -> usize {
+    batches
+        .first()
+        .map(|b| b.schema().index_of(name).expect(format!("column '{}' not found", name).as_str()))
+        .unwrap_or(0)
+}
+
+/// Get column index for a ListArray column.
+fn batch_col_idx(batches: &[RecordBatch], name: &str) -> usize {
+    col_str_idx(batches, name)
 }
 
 #[cfg(test)]

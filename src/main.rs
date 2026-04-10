@@ -300,12 +300,18 @@ enum Commands {
         /// Item ID (for single-item export) or omit for board export
         #[arg(long)]
         id: Option<String>,
-        /// Export format: expedition-index, markdown, json, html, research-index, item (default: item)
+        /// Export format: expedition-index, markdown, json, html, research-index, kanban-materialize, item (default: item)
         #[arg(short, long, default_value = "item")]
         format: String,
         /// Board for board-wide exports (development, research)
         #[arg(long, default_value = "development")]
         board: String,
+        /// Filter by item type (expedition, paper, hypothesis, etc.)
+        #[arg(long)]
+        item_type: Option<String>,
+        /// Filter by status (backlog, in_progress, done, etc.)
+        #[arg(long)]
+        status: Option<String>,
         /// Output file (default: stdout)
         #[arg(short, long)]
         output: Option<String>,
@@ -469,9 +475,43 @@ enum Commands {
         dry_run: bool,
     },
 
+    /// Materialize a single Arrow item and optionally its related items to nusy-kanban/
+    MaterializeItem {
+        /// Item ID to materialize (e.g. VY-3229, EXP-1234)
+        id: String,
+        /// Scope of related items to materialize: work (dev items), research (HDD items), or all
+        #[arg(long, default_value = "all")]
+        scope: String,
+        /// Maximum depth for recursive related-item traversal (default: 1 for direct only)
+        #[arg(long, default_value = "1")]
+        depth: u32,
+        /// Output directory (default: ./nusy-kanban)
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+
     /// Unified config management — view and modify settings from all sources (VY-3510)
     #[command(subcommand)]
     Config(ConfigCommands),
+
+    /// Snapshot the kanban Arrow store to a timestamped backup directory (EX-4010).
+    Backup {
+        /// List available snapshots and exit (does not create a backup).
+        #[arg(long)]
+        list: bool,
+        /// Show detailed info about a specific snapshot.
+        #[arg(long)]
+        inspect: Option<String>,
+    },
+
+    /// Restore the kanban Arrow store from a backup snapshot (EX-4010).
+    Restore {
+        /// Snapshot name to restore (e.g. snapshot-2026-04-07_055839).
+        snapshot: String,
+        /// Confirm restore — required because this overwrites the live store.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 /// Config subcommands (VY-3510 EX-3512)
@@ -638,6 +678,77 @@ struct TestFailureJson {
 /// graph-native compilation fails.
 /// EX-3512: Unified config CLI — list/get/set/diff.
 ///
+// ── Backup & Restore Commands (EX-4010) ────────────────────────────────────
+use nusy_kanban::backup::{self, BackupConfig};
+
+/// Run `nk backup` — snapshot or list the kanban Arrow store.
+fn run_backup_command(
+    root: &std::path::Path,
+    list: bool,
+    inspect: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = BackupConfig::default();
+
+    if list {
+        let snapshots = backup::list_snapshots(&config)?;
+        if snapshots.is_empty() {
+            println!("No snapshots found in {:?}", config.destination);
+        } else {
+            println!("Snapshots in {:?}:", config.destination);
+            for snap in &snapshots {
+                println!(
+                    "  {}  version={}  commits={}",
+                    snap.name, snap.version, snap.commit_count
+                );
+            }
+        }
+        return Ok(());
+    }
+
+    if let Some(snapshot_name) = inspect {
+        let snapshots = backup::list_snapshots(&config)?;
+        let found = snapshots.iter().find(|s| s.name == snapshot_name);
+        if let Some(snap) = found {
+            println!("Snapshot: {}", snap.name);
+            println!("  path: {:?}", snap.path);
+            if let Some(created) = &snap.created_at {
+                println!("  created: {}", created);
+            }
+            println!("  version: {}", snap.version);
+            println!("  commits: {}", snap.commit_count);
+        } else {
+            return Err(format!("Snapshot '{}' not found", snapshot_name).into());
+        }
+        return Ok(());
+    }
+
+    // Default: create a new snapshot
+    let snapshot_dir = backup::create_snapshot(&config, root)?;
+    println!(
+        "Backup created: {}",
+        snapshot_dir
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+    );
+    Ok(())
+}
+
+/// Run `nk restore` — restore the kanban Arrow store from a snapshot.
+fn run_restore_command(
+    root: &std::path::Path,
+    snapshot: &str,
+    force: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = BackupConfig::default();
+    let restored = nusy_kanban::backup::restore_snapshot(snapshot, &config, root, force)?;
+    println!(
+        "Restored from: {}",
+        restored.file_name().unwrap_or_default().to_string_lossy()
+    );
+    Ok(())
+}
+
 /// Config types are defined in nusy-being::config_store (canonical implementation).
 /// This CLI reads from NATS KV or local files. Full NATS integration wired in
 /// EX-3514 (awakening integration).
@@ -910,6 +1021,176 @@ fn run_materialize_command(
     if errors > 0 {
         std::process::exit(1);
     }
+}
+
+/// Run the materialize-item command: materialize a single Arrow item and its related web.
+///
+/// Returns a summary string on success.
+fn run_materialize_item_command(
+    root: &std::path::Path,
+    item_id: &str,
+    scope: &str,
+    depth: u32,
+    out_dir: &std::path::Path,
+) -> Result<String, Box<dyn std::error::Error>> {
+    use arrow::array::ListArray;
+    use std::collections::HashSet;
+
+    let config_path = root.join(".yurtle-kanban/config.yaml");
+    let _config = if config_path.exists() {
+        ConfigFile::from_path(&config_path)?
+    } else {
+        return Err("No .yurtle-kanban/config.yaml found. Run 'nusy-kanban init' first.".into());
+    };
+    let store = persist::load_store(root)?;
+
+    // Fetch the root item
+    let root_batch = store.get_item(item_id)?;
+
+    // Scope filter
+    #[derive(Clone, Copy)]
+    enum ScopeFilter {
+        All,
+        Work,
+        Research,
+    }
+    let scope_filter = match scope {
+        "work" => ScopeFilter::Work,
+        "research" => ScopeFilter::Research,
+        _ => ScopeFilter::All,
+    };
+
+    fn is_dev_type(t: &str) -> bool {
+        matches!(t, "expedition" | "chore" | "voyage" | "hazard" | "signal" | "feature")
+    }
+    fn is_research_type(t: &str) -> bool {
+        matches!(t, "paper" | "hypothesis" | "experiment" | "measure" | "literature" | "idea")
+    }
+
+    // (id, remaining_depth) — start with root at full depth
+    let mut stack: Vec<(String, u32)> = vec![(item_id.to_string(), depth)];
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut all_ids: Vec<String> = Vec::new();
+
+    while let Some((id, remaining)) = stack.pop() {
+        if !visited.insert(id.clone()) {
+            continue; // already processed
+        }
+        all_ids.push(id.clone());
+
+        if remaining == 0 {
+            continue; // no more recursion
+        }
+
+        // Fetch this item to get its related/depends_on
+        let batch = match store.get_item(&id) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+
+        let schema = batch.schema();
+        let type_idx = schema.index_of("item_type").unwrap_or(0);
+        let related_idx = schema.index_of("related").unwrap_or(0);
+        let depends_idx = schema.index_of("depends_on").unwrap_or(0);
+
+        let types_arr = arrow::array::as_string_array(batch.column(type_idx));
+        let related_col = batch
+            .column(related_idx)
+            .as_any()
+            .downcast_ref::<ListArray>();
+        let depends_col = batch
+            .column(depends_idx)
+            .as_any()
+            .downcast_ref::<ListArray>();
+
+        let item_type = types_arr.value(0);
+
+        // Scope filter check
+        let type_ok = match scope_filter {
+            ScopeFilter::All => true,
+            ScopeFilter::Work => is_dev_type(item_type),
+            ScopeFilter::Research => is_research_type(item_type),
+        };
+        if !type_ok {
+            continue;
+        }
+
+        // Collect related IDs
+        if let Some(rel_col) = related_col {
+            for rel_id in export::list_values(rel_col, 0) {
+                if !visited.contains(&rel_id) {
+                    stack.push((rel_id, remaining - 1));
+                }
+            }
+        }
+        if let Some(dep_col) = depends_col {
+            for dep_id in export::list_values(dep_col, 0) {
+                if !visited.contains(&dep_id) {
+                    stack.push((dep_id, remaining - 1));
+                }
+            }
+        }
+    }
+
+    // Deduplicate
+    all_ids.sort();
+    all_ids.dedup();
+
+    // Write each item
+    let mut written: Vec<String> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+
+    for id in &all_ids {
+        let batch = match store.get_item(id) {
+            Ok(b) => b,
+            Err(_) => {
+                errors.push(format!("  ERROR: {} not found in Arrow store", id));
+                continue;
+            }
+        };
+
+        match export::kanban_materialize_single(&batch, out_dir) {
+            Ok(path) => {
+                written.push(format!("  {} → {}", id, path.display()));
+            }
+            Err(e) => {
+                errors.push(format!("  ERROR writing {}: {}", id, e));
+            }
+        }
+    }
+
+    // Build manifest
+    let mut manifest = format!(
+        "Materialized {} items to {}\n\nRoot: {}\nScope: {}\nDepth: {}\n\nFiles written:\n",
+        written.len(),
+        out_dir.display(),
+        item_id,
+        scope,
+        depth
+    );
+    for line in &written {
+        manifest.push_str(line);
+        manifest.push('\n');
+    }
+    if !errors.is_empty() {
+        manifest.push_str("\nErrors:\n");
+        for e in &errors {
+            manifest.push_str(e);
+            manifest.push('\n');
+        }
+    }
+
+    // Write manifest file alongside root item
+    let root_folder = export::kanban_materialize_single(&root_batch, out_dir)
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+    if let Some(folder) = root_folder {
+        let manifest_path = folder.join("materialize-manifest.txt");
+        std::fs::write(&manifest_path, &manifest)?;
+        manifest.push_str(&format!("\nManifest: {}", manifest_path.display()));
+    }
+
+    Ok(manifest)
 }
 
 /// Copy Cargo.toml, Cargo.lock, and rust-toolchain.toml from workspace to output dir.
@@ -1253,6 +1534,46 @@ fn main() {
             *verify,
             *dry_run,
         );
+        return;
+    }
+
+    // MaterializeItem command — materialize a single Arrow item + related web.
+    if let Commands::MaterializeItem {
+        id,
+        scope,
+        depth,
+        output,
+    } = &cli.command
+    {
+        let root_path = root.clone();
+        let out_dir = output.clone().unwrap_or_else(|| PathBuf::from("nusy-kanban"));
+        match run_materialize_item_command(&root_path, id, scope, *depth, &out_dir) {
+            Ok(manifest) => {
+                println!("{}", manifest);
+            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // Backup command runs locally — snapshot or list Arrow store.
+    if let Commands::Backup { list, inspect } = &cli.command {
+        if let Err(e) = run_backup_command(&root, *list, inspect.clone()) {
+            eprintln!("Error: {e}");
+            process::exit(1);
+        }
+        return;
+    }
+
+    // Restore command runs locally — restore from snapshot.
+    if let Commands::Restore { snapshot, force } = &cli.command {
+        if let Err(e) = run_restore_command(&root, snapshot, *force) {
+            eprintln!("Error: {e}");
+            process::exit(1);
+        }
         return;
     }
 
@@ -1734,7 +2055,33 @@ fn run(root: PathBuf, command: Commands) -> Result<(), Box<dyn std::error::Error
                                 .any(|i| titles.value(i).to_lowercase().contains(&search_lower))
                         })
                         .collect();
+
+                    // Also scan external files in nusy-kanban/ folder
+                    let arrow_ids: std::collections::HashSet<&str> = matched
+                        .iter()
+                        .flat_map(|batch| {
+                            let ids = batch
+                                .column(nusy_kanban::schema::items_col::ID)
+                                .as_any()
+                                .downcast_ref::<arrow::array::StringArray>()
+                                .expect("id");
+                            (0..batch.num_rows())
+                                .map(|i| ids.value(i))
+                                .collect::<Vec<_>>()
+                        })
+                        .collect();
+                    let file_results = nusy_kanban::file_index::search_files(search_text, &arrow_ids);
+
                     print!("{}", display::format_item_table(&matched));
+                    if !file_results.is_empty() {
+                        println!("\n[External files in nusy-kanban/]");
+                        for fr in &file_results {
+                            println!(
+                                "  {} | {} | {}",
+                                fr.id, fr.title, fr.item_type
+                            );
+                        }
+                    }
                 } else {
                     // Semantic search with selected embedding provider
                     let provider =
@@ -1750,7 +2097,7 @@ fn run(root: PathBuf, command: Commands) -> Result<(), Box<dyn std::error::Error
                     .unwrap_or_default();
 
                     // Collect matching IDs with scores, then build ranked results
-                    let results: Vec<query::RankedResult> = sem_results
+                    let mut results: Vec<query::RankedResult> = sem_results
                         .iter()
                         .filter_map(|sr| {
                             // Find the item in batches
@@ -1810,6 +2157,13 @@ fn run(root: PathBuf, command: Commands) -> Result<(), Box<dyn std::error::Error
                             None
                         })
                         .collect();
+
+                    // Also scan external files in nusy-kanban/ folder
+                    let arrow_ids: std::collections::HashSet<&str> =
+                        results.iter().map(|r| r.id.as_str()).collect();
+                    let mut file_results =
+                        nusy_kanban::file_index::search_files(search_text, &arrow_ids);
+                    results.append(&mut file_results);
 
                     if json {
                         print!("{}", query::format_ranked_results_json(&results));
@@ -2268,23 +2622,33 @@ fn run(root: PathBuf, command: Commands) -> Result<(), Box<dyn std::error::Error
             id,
             format,
             board,
+            item_type,
+            status,
             output,
         } => {
+            // Build query filters from optional args
+            let type_filter = item_type
+                .as_ref()
+                .and_then(|t| nusy_kanban::item_type::ItemType::from_str_loose(t))
+                .map(|t| t.as_str().to_string());
+
+            let status_filter = status.clone();
+
             let content = match format.as_str() {
                 "expedition-index" => {
-                    let batches = store.query_items(None, None, Some(&board), None);
+                    let batches = store.query_items(status_filter.as_deref(), type_filter.as_deref(), Some(&board), None);
                     export::export_board_index(&batches, &board, None)
                 }
                 "json" => {
-                    let batches = store.query_items(None, None, Some(&board), None);
+                    let batches = store.query_items(status_filter.as_deref(), type_filter.as_deref(), Some(&board), None);
                     export::export_json(&batches)
                 }
                 "markdown" => {
-                    let batches = store.query_items(None, None, Some(&board), None);
+                    let batches = store.query_items(status_filter.as_deref(), type_filter.as_deref(), Some(&board), None);
                     export::export_markdown_table(&batches)
                 }
                 "html" => {
-                    let batches = store.query_items(None, None, Some(&board), None);
+                    let batches = store.query_items(status_filter.as_deref(), type_filter.as_deref(), Some(&board), None);
                     // Compute burndown for the last 8 weeks
                     let since_ms =
                         chrono::Utc::now().timestamp_millis() - (8 * 7 * 24 * 60 * 60 * 1000i64);
@@ -2304,6 +2668,17 @@ fn run(root: PathBuf, command: Commands) -> Result<(), Box<dyn std::error::Error
                     let rel_store = persist::load_relations(&root)?;
                     let chains = nusy_kanban::build_registry(&store, &rel_store);
                     export::export_research_index_html(&chains)
+                }
+                "kanban-materialize" => {
+                    let out_dir = output
+                        .as_ref()
+                        .map(PathBuf::from)
+                        .ok_or("--output required for kanban-materialize format")?;
+                    let batches = store.query_items(status_filter.as_deref(), type_filter.as_deref(), Some(&board), None);
+                    let count = export::kanban_materialize(&batches, &board, &out_dir)?;
+                    // kanban-materialize always prints to stdout; --output is the base directory
+                    println!("Materialized {} items to {}", count, out_dir.display());
+                    return Ok(());
                 }
                 _ => {
                     if let Some(item_id) = &id {
@@ -2653,20 +3028,23 @@ fn run(root: PathBuf, command: Commands) -> Result<(), Box<dyn std::error::Error
             }
         }
 
-        // Build and Test are intercepted before run() is called — they run
-        // locally and never reach this match. These arms are unreachable but
-        // required for exhaustive pattern matching.
+        // Build, Test, Materialize, and MaterializeItem are intercepted before run() is called —
+        // they run locally and never reach this match. These arms are unreachable
+        // but required for exhaustive pattern matching.
         #[cfg(feature = "build")]
         Commands::Build { .. }
         | Commands::Test { .. }
         | Commands::Materialize { .. }
-        | Commands::Config(_) => {
-            unreachable!("Build/Test/Materialize/Config intercepted before run()")
+        | Commands::MaterializeItem { .. }
+        | Commands::Config(_)
+        | Commands::Backup { .. }
+        | Commands::Restore { .. } => {
+            unreachable!("Build/Test/Materialize/MaterializeItem/Config/Backup/Restore intercepted before run()")
         }
-
-        #[cfg(not(feature = "build"))]
-        Commands::Materialize { .. } | Commands::Config(_) => {
-            return Err("Materialize and Config commands require the 'build' feature. Rebuild with --features build.".into());
+        _ => {
+            // All command variants that require --features build but are not
+            // covered by the cfg-gated arm above (should be unreachable)
+            unreachable!("This command requires --features build")
         }
     }
 
@@ -2903,12 +3281,19 @@ fn run_client(server_url: &str, command: &Commands) -> Result<(), Box<dyn std::e
     let client = nusy_kanban::client::NatsClient::connect(server_url)?;
 
     // Special-case: pr recheck runs CI locally then stores results on server
-    #[cfg(feature = "ci")]
     if let Commands::Pr {
         command: nusy_kanban::pr_cli::PrCommands::Recheck { id },
     } = command
     {
         return run_recheck_client(&client, id);
+    }
+
+    // Special-case: pr diff runs locally (codegraph needs working tree)
+    if let Commands::Pr {
+        command: nusy_kanban::pr_cli::PrCommands::Diff { id },
+    } = command
+    {
+        return run_pr_diff_locally(&client, id);
     }
 
     let (cmd, payload) = command_to_nats(command);
@@ -2920,13 +3305,79 @@ fn run_client(server_url: &str, command: &Commands) -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+/// Run `pr diff` locally using codegraph.
+///
+/// In server mode, the server can't compute semantic diffs (no working tree).
+/// So we fetch source/target branches from the server, then run the diff
+/// locally using the codegraph pipeline.
+#[cfg(feature = "client")]
+fn run_pr_diff_locally(
+    client: &nusy_kanban::client::NatsClient,
+    proposal_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Fetch the proposal to get source/target branches
+    let response = client.request("pr.view", &serde_json::json!({ "id": proposal_id }))?;
+    let detail = response
+        .get("detail")
+        .and_then(|v| v.as_str())
+        .ok_or("pr.view response missing 'detail'")?;
+
+    // Parse "Branch:  source → target" from the detail text
+    let branch_line = detail
+        .lines()
+        .find(|l| l.contains("→"))
+        .ok_or("Could not find branch line in pr.view detail")?
+        .trim();
+
+    // Remove "Branch:" prefix and split by arrow
+    let after_prefix = branch_line
+        .strip_prefix("Branch:")
+        .ok_or(format!("Could not strip 'Branch:' from: {branch_line}"))?;
+    let parts: Vec<&str> = after_prefix.split("→").collect();
+    if parts.len() != 2 {
+        return Err(format!("Expected 'source → target' but got: {after_prefix}").into());
+    }
+    let source = parts[0].trim().to_string();
+    let target = parts[1].trim().to_string();
+
+    println!("Diff: {source} → {target}\n");
+
+    // Run with a timeout — codegraph ingestion can be slow on large repos
+    let target_clone = target.clone();
+    let source_clone = source.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = nusy_kanban::pr_cli::semantic_diff_for_branches(&target_clone, &source_clone);
+        let _ = tx.send(result);
+    });
+
+    match rx.recv_timeout(std::time::Duration::from_secs(60)) {
+        Ok(Ok(output)) => print!("{output}"),
+        Ok(Err(e)) => {
+            eprintln!("Semantic diff unavailable: {e}");
+            println!("(Falling back to branch info only)");
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            eprintln!(
+                "Semantic diff timed out after 60s (codegraph ingestion is slow on large repos)."
+            );
+            println!("(Falling back to branch info only)");
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            eprintln!("Diff thread panicked.");
+            println!("(Falling back to branch info only)");
+        }
+    }
+    Ok(())
+}
+
 /// Run CI checks locally and store the results on the NATS server.
 ///
 /// This is the server-mode implementation of `nk pr recheck`. It:
 /// 1. Verifies the proposal exists on the server
 /// 2. Runs cargo test/clippy/fmt locally
 /// 3. Stores the results on the server via `pr.ci_store`
-#[cfg(all(feature = "client", feature = "ci"))]
+#[cfg(feature = "client")]
 fn run_recheck_client(
     client: &nusy_kanban::client::NatsClient,
     proposal_id: &str,
@@ -3220,10 +3671,12 @@ fn command_to_nats(command: &Commands) -> (String, serde_json::Value) {
             id,
             format,
             board,
+            item_type,
+            status,
             output: _,
         } => (
             "export".to_string(),
-            serde_json::json!({ "id": id, "format": format, "board": board }),
+            serde_json::json!({ "id": id, "format": format, "board": board, "item_type": item_type, "status": status }),
         ),
         Commands::NextId { item_type, json: _ } => (
             "next-id".to_string(),
@@ -3516,14 +3969,21 @@ fn command_to_nats(command: &Commands) -> (String, serde_json::Value) {
             }
         }
 
-        // Build, Test, and Materialize are intercepted before run_client is called —
-        // these arms are unreachable but required for exhaustive matching.
+        // Build, Test, Materialize, and MaterializeItem are intercepted before run_client
+        // is called — these arms are unreachable but required for exhaustive matching.
         #[cfg(feature = "build")]
-        Commands::Build { .. } | Commands::Test { .. } => {
-            unreachable!("Build/Test intercepted before NATS dispatch")
+        Commands::Build { .. }
+        | Commands::Test { .. }
+        | Commands::Materialize { .. }
+        | Commands::MaterializeItem { .. }
+        | Commands::Config(_)
+        | Commands::Backup { .. }
+        | Commands::Restore { .. } => {
+            unreachable!("Build/Test/Materialize/MaterializeItem/Config/Backup/Restore intercepted before NATS dispatch")
         }
-        Commands::Materialize { .. } | Commands::Config(_) => {
-            unreachable!("Materialize/Config intercepted before NATS dispatch")
+        #[cfg(not(feature = "build"))]
+        _ => {
+            unreachable!("This command requires --features build")
         }
     }
 }

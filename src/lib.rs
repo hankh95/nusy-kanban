@@ -14,6 +14,7 @@
 //! - **Export** — markdown + next-id output
 //! - **Migration** — parse Yurtle markdown files into Arrow tables
 
+pub mod backup;
 pub mod base64;
 #[cfg(feature = "client")]
 pub mod client;
@@ -25,6 +26,7 @@ pub mod display;
 pub mod embeddings;
 pub mod experiment_runs;
 pub mod export;
+pub mod file_index;
 #[cfg(feature = "pr")]
 pub mod git_cli;
 pub mod hdd;

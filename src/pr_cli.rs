@@ -370,55 +370,47 @@ pub fn run_pr_command(
             println!("Resolved comment {comment_id} on {id}");
         }
 
+        #[cfg(feature = "ci")]
         PrCommands::Recheck { id } => {
             // Verify proposal exists
             let _ = proposals.get_status(id)?;
 
-            #[cfg(feature = "ci")]
-            {
-                let repo_root =
-                    get_repo_root().map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+            let repo_root =
+                get_repo_root().map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
 
-                println!("Running CI checks for {id}...\n");
-                let suite = nusy_conductor::ci_runner::run_ci_checks(&repo_root);
+            println!("Running CI checks for {id}...\n");
+            let suite = nusy_conductor::ci_runner::run_ci_checks(&repo_root);
 
-                // Convert CiCheckSuite → CiResultInput for storage
-                let (test_passed, test_failed, clippy_warnings, fmt_clean) =
-                    extract_check_counts(&suite);
+            // Convert CiCheckSuite → CiResultInput for storage
+            let (test_passed, test_failed, clippy_warnings, fmt_clean) =
+                extract_check_counts(&suite);
 
-                let status = if suite.passed {
-                    CiStatus::Passed
-                } else if suite.error.is_some() {
-                    CiStatus::Error
-                } else {
-                    CiStatus::Failed
-                };
+            let status = if suite.passed {
+                CiStatus::Passed
+            } else if suite.error.is_some() {
+                CiStatus::Error
+            } else {
+                CiStatus::Failed
+            };
 
-                let summary_text = suite.summary();
-                let error_msg = suite.error.as_deref();
+            let summary_text = suite.summary();
+            let error_msg = suite.error.as_deref();
 
-                let input = CiResultInput {
-                    proposal_id: id,
-                    status,
-                    test_passed,
-                    test_failed,
-                    clippy_warnings,
-                    fmt_clean,
-                    duration_secs: suite.total_duration.as_secs_f64(),
-                    error_message: error_msg,
-                    summary: &summary_text,
-                };
+            let input = CiResultInput {
+                proposal_id: id,
+                status,
+                test_passed,
+                test_failed,
+                clippy_warnings,
+                fmt_clean,
+                duration_secs: suite.total_duration.as_secs_f64(),
+                error_message: error_msg,
+                summary: &summary_text,
+            };
 
-                let run_id = ci_results.record_result(&input)?;
-                println!("{summary_text}");
-                println!("\nStored as {run_id}");
-            }
-
-            #[cfg(not(feature = "ci"))]
-            {
-                let _ = (id, ci_results);
-                println!("CI features not enabled. Rebuild with --features ci to run CI checks.");
-            }
+            let run_id = ci_results.record_result(&input)?;
+            println!("{summary_text}");
+            println!("\nStored as {run_id}");
         }
     }
 
@@ -608,7 +600,7 @@ where
 /// Run semantic diff between two branches using codegraph ingestion.
 ///
 /// `_head_branch` is unused — head is always the current working tree.
-fn semantic_diff_for_branches(
+pub fn semantic_diff_for_branches(
     base_branch: &str,
     _head_branch: &str,
 ) -> std::result::Result<String, String> {
@@ -1423,7 +1415,6 @@ mod tests {
 
     // ── CI integration tests ──
 
-    #[cfg(feature = "ci")]
     #[test]
     fn test_checks_shows_ci_results_when_present() {
         let mut proposals = ProposalStore::new();
@@ -1495,7 +1486,6 @@ mod tests {
         assert!(result.is_none());
     }
 
-    #[cfg(feature = "ci")]
     #[test]
     fn test_ci_result_replacement_on_recheck() {
         let mut ci = CiResultStore::new();
@@ -1538,7 +1528,6 @@ mod tests {
         assert_eq!(v2.test_failed, 0);
     }
 
-    #[cfg(feature = "ci")]
     #[test]
     fn test_parse_test_counts() {
         assert_eq!(parse_test_counts("42 passed, 3 failed"), (42, 3));
@@ -1547,14 +1536,12 @@ mod tests {
         assert_eq!(parse_test_counts("0 passed, 5 failed"), (0, 5));
     }
 
-    #[cfg(feature = "ci")]
     #[test]
     fn test_parse_warning_count() {
         assert_eq!(parse_warning_count("5 warning(s)"), 5);
         assert_eq!(parse_warning_count("no warnings"), 1); // unparseable → default 1
     }
 
-    #[cfg(feature = "ci")]
     #[test]
     fn test_extract_check_counts_from_suite() {
         use nusy_conductor::ci_runner::{CheckResult, CheckType, CiCheckSuite};
