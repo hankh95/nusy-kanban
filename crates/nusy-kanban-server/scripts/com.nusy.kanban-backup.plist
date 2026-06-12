@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd plist for nusy-kanban scheduled backups on Mini.
+
+  Installation:
+    cp scripts/com.nusy.kanban-backup.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.nusy.kanban-backup.plist
+
+  Unload / stop:
+    launchctl unload ~/Library/LaunchAgents/com.nusy.kanban-backup.plist
+
+  Backup destination: /Volumes/mate-mini/nusy-kanban-backup
+  Schedule: daily at 03:00 (configured in .yurtle-kanban/config.yaml backup.schedule)
+
+  Note: The backup binary (nusy-kanban) must be on PATH. If cargo install
+  placed it somewhere else, update ProgramArguments below.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.nusy.kanban-backup</string>
+
+    <!-- Run backup once per day at 3:00 AM -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key>
+            <integer>3</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+    </array>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- nusy-kanban binary (cargo install --path crates/nusy-kanban) -->
+        <string>/Users/hankh19/.cargo/bin/nusy-kanban</string>
+        <string>--server</string>
+        <string>nats://localhost:4222</string>
+        <string>backup</string>
+    </array>
+
+    <!-- Working directory: project root (nusy-kanban looks for .nusy-kanban/) -->
+    <key>WorkingDirectory</key>
+    <string>/Users/hankh19/Projects/nusy-product-team</string>
+
+    <!-- Log output -->
+    <key>StandardOutPath</key>
+    <string>/Users/hankh19/Library/Logs/nusy-kanban-backup.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/hankh19/Library/Logs/nusy-kanban-backup.err</string>
+
+    <!--
+      Do NOT use KeepAlive — this is a scheduled task, not a long-running server.
+      If the backup destination is unreachable, is_backup_due() returns early
+      and the command exits cleanly without blocking or retrying.
+    -->
+</dict>
+</plist>

@@ -1,0 +1,33 @@
+[package]
+name = "nusy-kanban-server"
+description = "NATS server + client bridge for the Arrow-native kanban engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[[bin]]
+name = "nusy-kanban-server"
+path = "src/main.rs"
+
+[features]
+default = ["pr", "research", "git"]
+pr = ["dep:nusy-graph-review"]
+research = []
+git = []
+
+[dependencies]
+nusy-kanban = { path = "../nusy-kanban", version = "0.15.2" }
+nusy-graph-review = { path = "../nusy-graph-review", version = "0.15.2", optional = true }
+arrow = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+noesis-ship = { path = "../noesis-ship", version = "0.15.2" }
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile = { workspace = true }

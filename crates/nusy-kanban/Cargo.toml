@@ -1,0 +1,70 @@
+[package]
+name = "nusy-kanban"
+description = "Arrow-native kanban engine — SHACL shapes, graph-native PRs, dual boards, NATS multi-agent collaboration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["kanban", "arrow", "neurosymbolic", "nats", "project-management"]
+categories = ["command-line-utilities", "data-structures"]
+homepage = "https://nusy.dev"
+
+[[bin]]
+name = "nusy-kanban"
+path = "src/main.rs"
+required-features = ["pr", "ci", "codegraph"]
+
+[dependencies]
+# Published on crates.io (path + version for workspace, version used on publish)
+nusy-arrow-core = { path = "../nusy-arrow-core", version = "0.15.2" }
+nusy-arrow-git = { path = "../nusy-arrow-git", version = "0.15.2" }
+nusy-graph-query = { path = "../nusy-graph-query", version = "0.15.2", features = ["ollama", "subprocess", "fastembed"] }
+noesis-ship = { path = "../noesis-ship", version = "0.15.2" }
+nusy-tutor-record = { path = "../nusy-tutor-record", version = "0.15.2" }
+nusy-evaluator = { path = "../nusy-evaluator", version = "0.15.2" }
+
+# Internal-only (optional — path deps, not on crates.io)
+# These features are available when building from the monorepo.
+# On crates.io, pr/ci/build/codegraph features are no-ops.
+nusy-codegraph = { path = "../nusy-codegraph", version = "0.15.2", optional = true }
+nusy-conductor = { path = "../nusy-conductor", version = "0.15.2", optional = true }
+nusy-cranelift = { path = "../nusy-cranelift", version = "0.15.2", optional = true }
+nusy-graph-review = { path = "../nusy-graph-review", version = "0.15.2", optional = true }
+
+# Arrow ecosystem
+arrow = { workspace = true }
+parquet = { workspace = true }
+
+# Core deps
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+clap = { workspace = true }
+regex = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+# Optional deps
+async-nats = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+
+[features]
+# Default for internal use: everything on
+default = ["client", "pr", "ci", "build", "codegraph", "fastembed"]
+# NATS remote server mode
+client = ["dep:async-nats", "dep:tokio"]
+# Graph-native PR workflow (requires nusy-graph-review)
+pr = ["dep:nusy-graph-review"]
+# CI runner (requires nusy-conductor)
+ci = ["dep:nusy-conductor"]
+# Cranelift build/test (requires nusy-cranelift)
+build = ["dep:nusy-cranelift"]
+# Code graph integration (requires nusy-codegraph)
+codegraph = ["dep:nusy-codegraph"]
+# Fastembed embedding backend
+fastembed = ["nusy-graph-query/fastembed"]
+
+[dev-dependencies]
+tempfile = { workspace = true }

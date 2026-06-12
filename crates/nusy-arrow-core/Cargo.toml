@@ -1,0 +1,21 @@
+[package]
+name = "nusy-arrow-core"
+description = "Arrow-native neurosymbolic graph store — triple storage, SPARQL-like queries, namespace partitioning, and Parquet persistence"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["neurosymbolic", "knowledge-graph", "arrow", "triple-store", "rdf"]
+categories = ["data-structures", "database-implementations"]
+homepage = "https://nusy.dev"
+
+[dependencies]
+arrow = { workspace = true }
+parquet = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -1,0 +1,28 @@
+[package]
+name = "nusy-safety"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Safety gates for NuSy — Zorblaxia hallucination testing and adapter validation"
+
+[dependencies]
+nusy-llm-backend = { path = "../nusy-llm-backend", version = "0.15.2" }
+arrow = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { workspace = true }
+sha2 = { workspace = true }
+hmac = "0.12"
+chrono = { workspace = true }
+
+[[bin]]
+name = "nusy-safety"
+path = "src/main.rs"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
+tempfile = { workspace = true }

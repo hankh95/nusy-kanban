@@ -1,63 +1,52 @@
-[package]
-name = "nusy-kanban"
-description = "Arrow-native kanban engine — SHACL shapes, graph-native PRs, dual boards, NATS multi-agent collaboration"
-version = "0.15.2"
+[workspace]
+members = [
+    "crates/noesis-ship",
+    "crates/nusy-arrow-core",
+    "crates/nusy-arrow-git",
+    "crates/nusy-codegraph",
+    "crates/nusy-conductor",
+    "crates/nusy-cranelift",
+    "crates/nusy-evaluator",
+    "crates/nusy-graph-query",
+    "crates/nusy-graph-review",
+    "crates/nusy-kanban",
+    "crates/nusy-kanban-server",
+    "crates/nusy-llm-backend",
+    "crates/nusy-safety",
+    "crates/nusy-tutor-record",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.15.4"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/hankh95/nusy-kanban"
-keywords = ["kanban", "arrow", "neurosymbolic", "nats", "project-management"]
-categories = ["command-line-utilities", "data-structures"]
-homepage = "https://nusy.dev"
+# CH-4702: the monorepo is private, so a github.com/hankh95/nusy-product-team
+# link 404s for crates.io users. Point at nusy.dev until the V19 public repos
+# (nusy-reasoners + v0.2 store extraction) exist, then repoint per crate.
+repository = "https://nusy.dev"
 
-[[bin]]
-name = "nusy-kanban"
-path = "src/main.rs"
-required-features = ["pr", "ci", "codegraph"]
-
-[dependencies]
-# Arrow ecosystem (published on crates.io)
+[workspace.dependencies]
 arrow = { version = "57", features = ["prettyprint"] }
 parquet = { version = "57", features = ["arrow"] }
-
-# NuSy crates (published on crates.io)
-nusy-arrow-core = "0.15.2"
-nusy-arrow-git = "0.15.2"
-nusy-graph-query = { version = "0.15.2", features = ["ollama", "subprocess", "fastembed"] }
-noesis-ship = "0.15.2"
-
-# Core deps
+datafusion = "52"
+rdf-fusion = { git = "https://codeberg.org/tschwarzinger/rdf-fusion.git", branch = "main" }
 uuid = { version = "1", features = ["v4"] }
 chrono = "0.4"
 thiserror = "2"
+tempfile = "3"
+tree-sitter = "0.25"
+tree-sitter-python = "0.23"
+tree-sitter-rust = "0.23"
+sha2 = "0.10"
 clap = { version = "4", features = ["derive"] }
 regex = "1"
-serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.9"
+criterion = { version = "0.5", features = ["html_reports"] }
+async-nats = "0.38"
+tokio = { version = "1", features = ["full"] }
 serde_json = "1"
-sha2 = "0.10"
-
-# Optional deps — only needed when respective features are enabled
-nusy-graph-review = { version = "0.15.2", optional = true }
-nusy-conductor = { version = "0.15.2", optional = true }
-nusy-cranelift = { version = "0.15.2", optional = true }
-nusy-codegraph = { version = "0.15.2", optional = true }
-async-nats = { version = "0.38", optional = true }
-tokio = { version = "1", features = ["full"], optional = true }
-
-[dev-dependencies]
-tempfile = "3"
-
-[features]
-default = ["client", "pr", "ci", "codegraph", "fastembed"]
-# NATS remote server mode
-client = ["dep:async-nats", "dep:tokio"]
-# Graph-native PR workflow (requires nusy-graph-review and nusy-codegraph)
-pr = ["dep:nusy-graph-review", "dep:nusy-codegraph"]
-# CI runner (requires nusy-conductor)
-ci = ["dep:nusy-conductor"]
-# Cranelift build/test (requires nusy-cranelift)
-build = ["dep:nusy-cranelift"]
-# Code graph integration (requires nusy-codegraph)
-codegraph = ["dep:nusy-codegraph"]
-# Fastembed embedding backend
-fastembed = ["nusy-graph-query/fastembed"]
+serde = { version = "1", features = ["derive"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+futures = "0.3"
+tracing = "0.1"
+tantivy = "0.22"

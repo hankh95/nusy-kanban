@@ -1,0 +1,36 @@
+[package]
+name = "noesis-ship"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+# CH-4702: this Rust crate is NOT github.com/hankh95/noesis-ship (the Python/Node
+# platform of the same name). Source lives in the private NuSy monorepo; public
+# home is nusy.dev until the V19 public repos exist.
+repository = "https://nusy.dev"
+homepage = "https://nusy.dev"
+description = "Rust NATS communication platform for multi-agent AI systems (distinct from the Python noesis-ship repo)"
+keywords = ["nats", "multi-agent", "ai", "communication", "pubsub"]
+categories = ["network-programming", "asynchronous"]
+readme = "README.md"
+
+[features]
+default = []
+integration = []
+
+[dependencies]
+async-nats.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+clap.workspace = true
+futures.workspace = true
+tracing.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber = "0.3"

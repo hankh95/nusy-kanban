@@ -1,0 +1,41 @@
+[package]
+name = "nusy-arrow-git"
+description = "Graph-native git on Arrow RecordBatches — commit, checkout, merge, diff, blame, rebase, cherry-pick, revert"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["git", "arrow", "knowledge-graph", "version-control", "neurosymbolic"]
+categories = ["data-structures", "development-tools"]
+homepage = "https://nusy.dev"
+
+[dependencies]
+nusy-arrow-core = { path = "../nusy-arrow-core", version = "0.15.2" }
+arrow = { workspace = true }
+parquet = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+bytes = "1"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+nusy-codegraph = { path = "../nusy-codegraph" }
+nusy-kanban = { path = "../nusy-kanban" }
+criterion = { workspace = true }
+deltalake = { version = "0.31", features = ["datafusion"] }
+tokio = { workspace = true }
+url = "2"
+
+[[bench]]
+name = "performance_gates"
+harness = false
+
+[[example]]
+name = "basic_workflow"
+
+[[example]]
+name = "branch_merge"
+
+[[example]]
+name = "crash_recovery"

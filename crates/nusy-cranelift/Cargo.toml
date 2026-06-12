@@ -1,0 +1,40 @@
+[package]
+name = "nusy-cranelift"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Graph-native Cranelift JIT frontend — CodeNode → CLIF IR"
+# CH-4702: dropped from the crates.io publish set (V13-era JIT spike; no
+# standalone value). 0.15.2 remains on the registry so nusy-kanban's optional
+# `build` feature keeps resolving.
+publish = false
+
+[dependencies]
+nusy-codegraph    = { path = "../nusy-codegraph", version = "0.15.2" }
+cranelift         = "0.129.1"
+cranelift-codegen = "0.129.1"
+cranelift-frontend = "0.129.1"
+cranelift-jit     = "0.129.1"
+cranelift-module  = "0.129.1"
+cranelift-native  = "0.129.1"
+syn               = { version = "2", features = ["full"] }
+wasmtime          = "30"
+wasm-encoder      = "0.225"
+sha2              = { workspace = true }
+chrono            = { workspace = true }
+thiserror         = { workspace = true }
+clap              = { workspace = true }
+arrow             = { workspace = true }
+parquet           = { workspace = true }
+
+[[bin]]
+name = "nusy-graph-test"
+path = "src/bin/graph_test.rs"
+
+[[bin]]
+name = "nusy-graph-build"
+path = "src/bin/build.rs"
+
+[dev-dependencies]
+wasmparser        = "0.225"

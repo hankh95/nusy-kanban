@@ -1,0 +1,220 @@
+{
+  "schema_version": "1.0",
+  "document": {
+    "path": "beings/m5-benchmark-v10/corpus/L0_toddler/00_alphabet_dame_wonder.md",
+    "level": "L0_toddler",
+    "title": "Dame Wonder's Picture Alphabet",
+    "era": "Victorian",
+    "audience": "toddler",
+    "publisher": "McLoughlin Brothers",
+    "source_attribution": "Project Gutenberg #23483"
+  },
+  "tutor": {
+    "name": "M5 (canonical example for nusy-tutor-record schema)",
+    "timestamp": "2026-05-04T00:00:00Z",
+    "pipeline_lineage": "V6/V7 Sushi Pipeline Step 2 + Step 7; V16 5-layer Customer's Plate"
+  },
+  "gist": "Victorian alphabet primer mapping each letter A-Z to a memorable example object (A=Archer, B=Bow, C=Crow, D=Dog, ...). 26 stanzas with in-stanza cross-references (Archer owns Bow, Archer shot at Crow). Six [Illustration] markers carry the visual lesson.",
+  "layers": {
+    "layer_1_literal": {
+      "chunks": [
+        {
+          "id": "chunk_001",
+          "content": "Title page: Dame Wonder's Picture Alphabet (Victorian, McLoughlin Brothers).",
+          "source_lines": {"start": 1, "end": 7},
+          "role": "frontmatter",
+          "salience": "high"
+        },
+        {
+          "id": "chunk_002",
+          "content": "A stands for an Archer, B for his Bow; C the Crow that he shot at; and D for his Dog.",
+          "source_lines": {"start": 84, "end": 96},
+          "role": "lesson",
+          "salience": "high"
+        },
+        {
+          "id": "chunk_003",
+          "content": "PG license boilerplate.",
+          "source_lines": {"start": 222, "end": 510},
+          "role": "license_boilerplate",
+          "salience": "skip"
+        },
+        {
+          "id": "chunk_004",
+          "content": "Q for the Queen with the Rose in her hand; T for the Throne and the Table she stands beside.",
+          "source_lines": {"start": 110, "end": 117},
+          "role": "lesson",
+          "salience": "high"
+        }
+      ],
+      "triples": [
+        {"subject": "letter:A", "predicate": "stands_for", "object": "Archer", "provenance": "chunk_002"},
+        {"subject": "letter:B", "predicate": "stands_for", "object": "Bow", "provenance": "chunk_002"},
+        {"subject": "letter:C", "predicate": "stands_for", "object": "Crow", "provenance": "chunk_002"},
+        {"subject": "letter:D", "predicate": "stands_for", "object": "Dog", "provenance": "chunk_002"},
+        {"subject": "Archer", "predicate": "owns", "object": "Bow", "provenance": "chunk_002", "notes": "in-stanza pronoun resolution: 'B for his Bow'"},
+        {"subject": "Archer", "predicate": "shot_at", "object": "Crow", "provenance": "chunk_002"},
+        {"subject": "DameWondersPictureAlphabet", "predicate": "rdf:type", "object": "AlphabetPrimer"},
+        {"subject": "DameWondersPictureAlphabet", "predicate": "era", "object": "Victorian"},
+        {"subject": "DameWondersPictureAlphabet", "predicate": "publisher", "object": "McLoughlinBrothers"}
+      ],
+      "target_count": 40
+    },
+    "layer_2_ontology": {
+      "entities": [
+        {
+          "entity": "Archer",
+          "wikidata_id": "Q204339",
+          "triples": [
+            {"subject": "Archer", "predicate": "rdf:type", "object": "Person", "provenance": "wikidata:Q204339"},
+            {"subject": "Archer", "predicate": "occupation", "object": "archery", "provenance": "wikidata:Q204339"},
+            {"subject": "Archer", "predicate": "uses_tool", "object": "Bow"},
+            {"subject": "Archer", "predicate": "uses_tool", "object": "Arrow"}
+          ]
+        },
+        {
+          "entity": "Bow",
+          "wikidata_id": "Q46311",
+          "triples": [
+            {"subject": "Bow", "predicate": "rdf:type", "object": "Weapon"},
+            {"subject": "Bow", "predicate": "rdf:type", "object": "Projectile_launcher"},
+            {"subject": "Bow", "predicate": "requires", "object": "Arrow"},
+            {"subject": "Bow", "predicate": "used_by", "object": "Archer"}
+          ]
+        },
+        {
+          "entity": "Crow",
+          "conceptnet_uri": "http://conceptnet.io/c/en/crow",
+          "triples": [
+            {"subject": "Crow", "predicate": "rdf:type", "object": "Bird"},
+            {"subject": "Crow", "predicate": "color", "object": "black"},
+            {"subject": "Crow", "predicate": "makes_sound", "object": "caw"}
+          ]
+        }
+      ],
+      "target_count": 140
+    },
+    "layer_3_curiosity": {
+      "cqs": [
+        {
+          "id": "cq_001",
+          "cq": "What is an Archer?",
+          "kind": "direct_word_meaning",
+          "expected_resolution": [
+            {"subject": "Archer", "predicate": "rdf:type", "object": "Person"},
+            {"subject": "Archer", "predicate": "occupation", "object": "archery"}
+          ]
+        },
+        {
+          "id": "cq_002",
+          "cq": "What happens when an Archer shoots a Bow at a Crow?",
+          "kind": "causal_chain",
+          "expected_resolution_chain": [
+            "Bow launches Arrow",
+            "Arrow hits Crow",
+            "Crow may die or fall"
+          ]
+        },
+        {
+          "id": "cq_003",
+          "cq": "Did the Archer hit the Crow?",
+          "kind": "causal_chain",
+          "open": true,
+          "notes": "The text says 'shot at', not 'shot' — intentionally ambiguous; flagged as open for parent Q&A."
+        },
+        {
+          "id": "cq_004",
+          "cq": "Which letters stand for animals?",
+          "kind": "pattern_recognition",
+          "expected_set": ["C: Crow", "D: Dog", "G: Goat", "H: Horse", "L: Lobster", "O: Owl", "P: Parrot", "Z: Zebra"]
+        },
+        {
+          "id": "cq_005",
+          "cq": "How is an alphabet primer different from a story book?",
+          "kind": "metacognitive",
+          "expected_resolution_chain": [
+            "alphabet primer maps letters to memorable example objects",
+            "story book builds a narrative; alphabet primer does not"
+          ]
+        },
+        {
+          "id": "cq_006",
+          "cq": "What does the Archer look like?",
+          "kind": "multimodal",
+          "open": true,
+          "notes": "Resolves only when Layer 5 illustration parsing is implemented."
+        }
+      ],
+      "target_count": 30
+    },
+    "layer_4_cross_book": {
+      "anchors": [
+        {
+          "anchor": "Archer",
+          "fires_when_reading": ["Robin Hood", "The Hunger Games", "Lord of the Rings"],
+          "cross_link_to": [
+            "(Archer, owns, Bow)",
+            "(Archer, occupation, archery)"
+          ]
+        },
+        {
+          "anchor": "Queen",
+          "fires_when_reading": ["Hamlet (Queen Gertrude)", "Wizard of Oz (Queen of the Fairies)", "Snow White"],
+          "cross_link_to": [
+            "(Queen, holds, Rose)",
+            "(Queen, attribute, royalty)"
+          ]
+        },
+        {
+          "anchor": "Bow homonym",
+          "fires_when_reading": ["any violin / orchestra book"],
+          "cross_link_to": [
+            "(Violin, played_with, Bow) — note: not the Archer's Bow"
+          ],
+          "notes": "Linguistic note: the Archer's Bow is a weapon; the Violin's Bow is an instrument accessory. Same string, different referents."
+        }
+      ],
+      "target_count": 15
+    },
+    "layer_5_multimodal": {
+      "illustrations": [
+        {
+          "id": "illustration_1",
+          "location": "A-D stanza",
+          "expected_depicts": ["Archer drawing bow", "Crow flying", "Dog at heel"],
+          "expected_triples": [
+            {"subject": "illustration_1", "predicate": "depicts", "object": "Archer"},
+            {"subject": "illustration_1", "predicate": "depicts", "object": "Bow"},
+            {"subject": "illustration_1", "predicate": "depicts", "object": "Crow"},
+            {"subject": "illustration_1", "predicate": "depicts", "object": "Dog"}
+          ],
+          "cross_modal_anchor": "visual_schema(Archer) ↔ word_string('Archer') ↔ phonetic('/ˈɑːrtʃər/')"
+        },
+        {
+          "id": "illustration_2",
+          "location": "Q-T stanza",
+          "expected_depicts": ["Queen on throne", "Rose in her hand", "Table beside throne"],
+          "expected_triples": [
+            {"subject": "illustration_2", "predicate": "depicts", "object": "Queen"},
+            {"subject": "illustration_2", "predicate": "depicts", "object": "Rose"},
+            {"subject": "illustration_2", "predicate": "depicts", "object": "Throne"}
+          ]
+        }
+      ],
+      "cadence": {
+        "reading_meter": "X stands for Y — 26-fold repetition, trains alphabet-song scaffolding",
+        "alliteration": "letter-sound mapping: A→Archer ('AR-cher'), B→Bow ('BOW')",
+        "rhyme": "ABAB-style couplets within each 4-letter stanza"
+      },
+      "target_count": 30
+    }
+  },
+  "scoring": {
+    "recall_target": 0.7,
+    "precision_target": 0.8,
+    "cq_hit_target": 0.6,
+    "gap_close_target": 0.5,
+    "notes": "Targets aligned with V15 aesops_fables.expected.json scoring conventions."
+  },
+  "notes": "Canonical example for nusy-tutor-record schema. Companion to the human-readable gold-standard at research/shared/eval-data/ex-4233/tutor/L0_toddler/00_alphabet_dame_wonder.expected.md. This JSON encodes a representative subset (4 chunks, 9 layer-1 triples, 3 ontology entities, 6 CQs, 3 anchors, 2 illustrations) — production plates are expected to be more exhaustive."
+}

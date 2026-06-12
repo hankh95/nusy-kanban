@@ -1,0 +1,30 @@
+[package]
+name = "nusy-graph-query"
+description = "Graph-native semantic search for Arrow RecordBatches — embeddings, traversal, hybrid ranking, and caching"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["semantic-search", "embeddings", "arrow", "knowledge-graph", "neurosymbolic"]
+categories = ["data-structures", "science"]
+homepage = "https://nusy.dev"
+
+[dependencies]
+arrow = { workspace = true }
+parquet = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+ureq = { version = "2", features = ["json"], optional = true }
+fastembed = { version = "5", optional = true }
+
+[features]
+default = []
+ollama = ["dep:serde", "dep:serde_json", "dep:ureq"]
+subprocess = ["dep:serde_json"]
+fastembed = ["dep:fastembed"]
+
+[dev-dependencies]
+tempfile = { workspace = true }

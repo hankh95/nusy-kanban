@@ -1,0 +1,62 @@
+[package]
+name = "nusy-codegraph"
+description = "Code-as-graph: Arrow-native code object representation with tree-sitter parsing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+nusy-arrow-core = { path = "../nusy-arrow-core", version = "0.15.2" }
+nusy-arrow-git = { path = "../nusy-arrow-git", version = "0.15.2" }
+nusy-graph-query = { path = "../nusy-graph-query", version = "0.15.2" }
+noesis-ship = { path = "../noesis-ship", version = "0.15.2" }
+arrow = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+tree-sitter = { workspace = true }
+tree-sitter-python = { workspace = true }
+tree-sitter-rust = { workspace = true }
+sha2 = { workspace = true }
+parquet = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { workspace = true }
+async-nats = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+futures.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+toml = "0.8"
+hostname = "0.4"
+scip = "0.6"
+protobuf = "3"
+
+[[bin]]
+name = "nusy-codegraph-ingest"
+path = "src/bin/ingest.rs"
+
+[[bin]]
+name = "nusy-codegraph-query"
+path = "src/bin/query_self_graph.rs"
+
+[[bin]]
+name = "nusy-codegraph-service"
+path = "src/bin/service.rs"
+
+[[bin]]
+name = "nusy-mcp-bridge"
+path = "src/bin/mcp_bridge.rs"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+# EX-3108: Cranelift/WASM spike dependencies (dev-only)
+cranelift = "0.129.1"
+cranelift-codegen = "0.129.1"
+cranelift-frontend = "0.129.1"
+cranelift-jit = "0.129.1"
+cranelift-module = "0.129.1"
+cranelift-native = "0.129.1"
+syn = { version = "2", features = ["full", "visit"] }
+target-lexicon = "0.13"

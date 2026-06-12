@@ -1,0 +1,20 @@
+[package]
+name = "nusy-tutor-record"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Canonical schema + validator for V16 Customer's Plate (5-layer tutor record)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+thiserror = { workspace = true }
+jsonschema = "0.30"
+sha2 = { workspace = true }
+# EX-4419 Phase 1 — TutorSeal content hashing + plate source_hash.
+blake3 = { version = "1", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

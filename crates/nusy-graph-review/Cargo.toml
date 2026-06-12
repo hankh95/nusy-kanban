@@ -1,0 +1,18 @@
+[package]
+name = "nusy-graph-review"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Proposal and review workflow for Arrow knowledge graph changes, with safety gates"
+
+[dependencies]
+nusy-arrow-core = { path = "../nusy-arrow-core", version = "0.15.2" }
+nusy-arrow-git = { path = "../nusy-arrow-git", version = "0.15.2" }
+arrow = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -1,0 +1,393 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nusy.dev/schemas/tutor-record/v1.json",
+  "title": "TutorRecord",
+  "description": "V16 Customer's Plate — canonical 5-layer tutor record. Lineage: V6/V7 Sushi Pipeline Step 2 (Customer's Plate) + Step 7 (Taste the Sushi). One TutorRecord describes the expected output for a being reading one document.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "document", "tutor", "layers"],
+  "properties": {
+    "schema_version": {
+      "description": "Tutor-record schema version. Bump on incompatible structural changes.",
+      "type": "string",
+      "enum": ["1.0"]
+    },
+    "document": {"$ref": "#/$defs/DocumentRef"},
+    "tutor": {"$ref": "#/$defs/TutorIdentity"},
+    "gist": {
+      "description": "One-paragraph synopsis of what's in the document.",
+      "type": "string"
+    },
+    "layers": {"$ref": "#/$defs/Layers"},
+    "scoring": {"$ref": "#/$defs/Scoring"},
+    "notes": {
+      "type": "string",
+      "description": "Free-form metadata, decisions, captain reframes, etc."
+    },
+    "source_hash": {
+      "type": "string",
+      "description": "blake3 hash of the pinned source the plate was generated from (EX-4419 / CH-4428 G2)."
+    },
+    "source_path": {
+      "type": "string",
+      "description": "Path to the pinned source the plate was generated from."
+    },
+    "source_hash_note": {
+      "type": "string",
+      "description": "Free-text note on source provenance (e.g. format/path conversion)."
+    }
+  },
+  "$defs": {
+    "DocumentRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "level"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to source document, relative to repo root."
+        },
+        "level": {
+          "$ref": "#/$defs/Level"
+        },
+        "title": {"type": "string"},
+        "era": {"type": "string"},
+        "audience": {"type": "string"},
+        "publisher": {"type": "string"},
+        "source_attribution": {
+          "type": "string",
+          "description": "Project Gutenberg ID, Wikidata Q-ID, ISBN, etc."
+        }
+      }
+    },
+    "Level": {
+      "type": "string",
+      "enum": [
+        "L0_toddler",
+        "L1_grade_school",
+        "L2_middle_school",
+        "L3_high_school",
+        "L4_undergraduate"
+      ]
+    },
+    "TutorIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "timestamp"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Author identity, e.g. 'Claude Opus 4.6 (negaDGX)' or 'M5'."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 UTC timestamp of when the plate was written."
+        },
+        "pipeline_lineage": {"type": "string"},
+        "captain_reframe": {
+          "type": "string",
+          "description": "If the Captain explicitly reframed the plate during authoring, capture the reframe here."
+        }
+      }
+    },
+    "Layers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "layer_1_literal",
+        "layer_2_ontology",
+        "layer_3_curiosity",
+        "layer_4_cross_book",
+        "layer_5_multimodal"
+      ],
+      "properties": {
+        "layer_1_literal": {"$ref": "#/$defs/Layer1Literal"},
+        "layer_2_ontology": {"$ref": "#/$defs/Layer2Ontology"},
+        "layer_3_curiosity": {"$ref": "#/$defs/Layer3Curiosity"},
+        "layer_3_practice": {"$ref": "#/$defs/Layer3Practice"},
+        "layer_4_cross_book": {"$ref": "#/$defs/Layer4CrossBook"},
+        "layer_5_multimodal": {"$ref": "#/$defs/Layer5Multimodal"}
+      }
+    },
+    "Layer3Practice": {
+      "description": "Y3 practice exercises (EX-4463): scan_structure instances extracted from math/procedural content — individual exercise items, not Y1/Y2 facts. Optional layer.",
+      "type": "object",
+      "required": ["items"],
+      "properties": {
+        "source": {"type": "string"},
+        "notes": {"type": "string"},
+        "target_count": {"type": "integer", "minimum": 0},
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "prompt", "answer"],
+            "properties": {
+              "id": {"type": "string"},
+              "source_chunk": {"type": "string"},
+              "type": {"type": "string"},
+              "prompt": {"type": "string"},
+              "answer": {"type": "string"},
+              "arith_form": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "Layer1Literal": {
+      "description": "What the document literally says — Y0 prose chunks + Y1 literal triples (letter→object, in-stanza cross-refs, document metadata). Target ~40 triples for an alphabet primer.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chunks", "triples"],
+      "properties": {
+        "chunks": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Y0Chunk"}
+        },
+        "triples": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Triple"}
+        },
+        "target_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Expected triple count when extracted correctly."
+        }
+      }
+    },
+    "Y0Chunk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "content"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^chunk_[0-9]{3,}$",
+          "description": "Stable chunk id, e.g. 'chunk_001'."
+        },
+        "content": {"type": "string"},
+        "source_lines": {"$ref": "#/$defs/LineRange"},
+        "role": {
+          "type": "string",
+          "description": "Pedagogical role, e.g. 'frontmatter', 'lesson', 'footer', 'license_boilerplate', 'catalog_appendix'."
+        },
+        "salience": {
+          "type": "string",
+          "enum": ["high", "medium", "low", "skip"]
+        }
+      }
+    },
+    "LineRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": {"type": "integer", "minimum": 1},
+        "end": {"type": "integer", "minimum": 1}
+      }
+    },
+    "Triple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "predicate", "object"],
+      "properties": {
+        "subject": {"type": "string"},
+        "predicate": {"type": "string"},
+        "object": {"type": "string"},
+        "provenance": {
+          "type": "string",
+          "description": "Chunk id (e.g. 'chunk_002') or external reference (e.g. 'wikidata:Q204339')."
+        },
+        "notes": {"type": "string"}
+      }
+    },
+    "Layer2Ontology": {
+      "description": "Ontology lookup — what every entity *means* at Wikidata/ConceptNet grade. Triples that a strong LLM should know on first encounter. Target ~140 for an alphabet primer.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entities"],
+      "properties": {
+        "entities": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/OntologyEntity"}
+        },
+        "target_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "OntologyEntity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entity", "triples"],
+      "properties": {
+        "entity": {"type": "string"},
+        "wikidata_id": {
+          "type": "string",
+          "pattern": "^Q[0-9]+$"
+        },
+        "conceptnet_uri": {"type": "string"},
+        "triples": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Triple"},
+          "minItems": 1
+        }
+      }
+    },
+    "Layer3Curiosity": {
+      "description": "Open Curiosity Questions a real reader would ask but the document does not directly answer. Target ~30 for an alphabet primer.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cqs"],
+      "properties": {
+        "cqs": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/OpenCq"}
+        },
+        "target_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "OpenCq": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cq", "kind"],
+      "properties": {
+        "id": {"type": "string"},
+        "cq": {
+          "type": "string",
+          "description": "The question phrased naturally."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "direct_word_meaning",
+            "causal_chain",
+            "pattern_recognition",
+            "cross_stanza_relational",
+            "multimodal",
+            "metacognitive"
+          ]
+        },
+        "expected_resolution": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Triple"},
+          "description": "Triples whose presence in the graph would close this CQ."
+        },
+        "expected_resolution_chain": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "expected_set": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "For pattern-recognition CQs, the closed enumeration."
+        },
+        "open": {
+          "type": "boolean",
+          "description": "True if the question is intentionally left open (no expected resolution from this document)."
+        },
+        "notes": {"type": "string"}
+      }
+    },
+    "Layer4CrossBook": {
+      "description": "Cross-book associative anchors — entries that fire on subsequent reads. Target ~15 for an alphabet primer.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchors"],
+      "properties": {
+        "anchors": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/CrossBookAnchor"}
+        },
+        "target_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "CrossBookAnchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["anchor", "fires_when_reading"],
+      "properties": {
+        "anchor": {"type": "string"},
+        "fires_when_reading": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1
+        },
+        "cross_link_to": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "notes": {"type": "string"}
+      }
+    },
+    "Layer5Multimodal": {
+      "description": "Multimodal anchor placeholders — illustrations, cadence, sound. Target ~30 for an illustrated primer.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["illustrations"],
+      "properties": {
+        "illustrations": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Illustration"}
+        },
+        "cadence": {"$ref": "#/$defs/CadenceMetadata"},
+        "target_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "Illustration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "expected_depicts"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^illustration_[0-9]+$"
+        },
+        "location": {"type": "string"},
+        "expected_depicts": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1
+        },
+        "expected_triples": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/Triple"}
+        },
+        "cross_modal_anchor": {"type": "string"},
+        "notes": {"type": "string"}
+      }
+    },
+    "CadenceMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reading_meter": {"type": "string"},
+        "alliteration": {"type": "string"},
+        "rhyme": {"type": "string"},
+        "notes": {"type": "string"}
+      }
+    },
+    "Scoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "recall_target": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "precision_target": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "cq_hit_target": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "gap_close_target": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "notes": {"type": "string"}
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+[package]
+name = "nusy-evaluator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "EX-γ Scenarios-pass evaluator (Taste the Sushi) — VY-4312 Phase 1"
+
+[dependencies]
+nusy-tutor-record = { path = "../nusy-tutor-record" }
+nusy-arrow-core = { path = "../nusy-arrow-core" }
+nusy-safety = { path = "../nusy-safety" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+thiserror = { workspace = true }
+regex = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

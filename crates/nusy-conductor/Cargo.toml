@@ -1,0 +1,25 @@
+[package]
+name = "nusy-conductor"
+description = "Agent orchestration conductor — reads kanban state via NATS, decomposes expeditions, tracks agent availability"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+# CH-4702: dropped from the crates.io publish set (fleet-internal; the bosun
+# layer it served was archived in EXP-1062). 0.15.2 remains on the registry
+# so nusy-kanban's optional `ci` feature keeps resolving.
+publish = false
+
+[dependencies]
+async-nats = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+futures = "0.3"
+noesis-ship = { path = "../noesis-ship", version = "0.15.2" }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
