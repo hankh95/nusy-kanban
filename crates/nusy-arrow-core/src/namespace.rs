@@ -66,6 +66,27 @@ impl fmt::Display for Namespace {
     }
 }
 
+// ─── Patient (PHI) partition predicate ─────────────────────────────────────
+//
+// CH-5510 (Captain-ratified Approach 1, 2026-07-05): the patient-partition
+// predicate lives here in `nusy-arrow-core` (which owns namespace/partition
+// primitives) so that FOSS crates — `nusy-dual-store`, `nusy-perceive`,
+// `nusy-grapher` — can check it WITHOUT depending on the PRODUCT crate
+// `nusy-patient-memory` (the D17 open-core edge). `nusy-patient-memory`
+// re-exports both symbols, so its public API is unchanged. This is a pure
+// relocation: the D33 patient-exclusion guard behavior is preserved EXACTLY
+// (identical logic — no weakening, per CH-5149). Mirrors precedent EX-5133.
+
+/// Prefix of every per-patient named-graph handle (the PHI boundary, D4).
+pub const PATIENT_GRAPH_PREFIX: &str = "patient:";
+
+/// Is this graph handle in the PHI / patient partition? The single predicate
+/// every prune/dedup/evict/COG-export surface checks (the D33 patient-exclusion
+/// guard). `None` (no graph) is never patient.
+pub fn is_patient_partition(graph: Option<&str>) -> bool {
+    graph.is_some_and(|g| g.starts_with(PATIENT_GRAPH_PREFIX))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,5 +140,24 @@ mod tests {
         assert_eq!(serialized, "code");
         let deserialized = Namespace::from_str_loose(serialized).unwrap();
         assert_eq!(ns, deserialized);
+    }
+
+    /// CH-5510 D33-preservation guard: the relocated patient-partition predicate
+    /// must behave EXACTLY as before — `patient:`-prefixed graphs are PHI, all
+    /// others (and `None`) are not. A regression here would silently weaken the
+    /// patient-exclusion guard the FOSS decoupling must NOT touch (CH-5149).
+    #[test]
+    fn test_is_patient_partition_preserves_d33_guard() {
+        assert_eq!(PATIENT_GRAPH_PREFIX, "patient:");
+        // PHI partition → true
+        assert!(is_patient_partition(Some("patient:jane-doe")));
+        assert!(is_patient_partition(Some("patient:")));
+        // Non-patient graphs → false
+        assert!(!is_patient_partition(Some("world")));
+        assert!(!is_patient_partition(Some("work:foo")));
+        assert!(!is_patient_partition(Some("not-patient:x")));
+        assert!(!is_patient_partition(Some("")));
+        // No graph is never patient
+        assert!(!is_patient_partition(None));
     }
 }

@@ -215,7 +215,7 @@ fn per_being_trends(results: &[ScenariosPassResult]) -> Vec<BeingTrend> {
     by_being
         .into_iter()
         .map(|(being_label, mut points)| {
-            points.sort_by(|a, b| a.run_at.cmp(&b.run_at));
+            points.sort_by_key(|a| a.run_at);
             BeingTrend {
                 being_label,
                 points,

@@ -3,8 +3,9 @@ name = "nusy-llm-backend"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
 repository.workspace = true
-description = "Shared LLM inference client for NuSy — Claude + Ollama backends"
+description = "Shared LLM inference client for NuSy — config-driven backends (mock, OpenAI-compatible vLLM/OpenAI/Ollama, Anthropic)"
 
 [dependencies]
 thiserror = { workspace = true }
@@ -12,7 +13,15 @@ tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { version = "0.12", features = ["json"] }
+# EX-6065: bounded-concurrency batch driver (buffer_unordered) — feed a continuous-batching
+# server (vLLM) many in-flight requests instead of a serial await-loop (~20-40x throughput).
+futures = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
 wiremock = "0.6"
+# HZ-5205: the EXPR-4991 trust_boundary_battery (which needed nusy-auth + nusy-phi-policy)
+# moved to crates/nusy-phi-policy/tests/ — it is a PRODUCT-perimeter integration test, not a
+# FOSS adapter-seam test. nusy-llm-backend stays FOSS-clean (no PRODUCT dev-deps): open-core-guard
+# counts dev-deps strictly (CH-5149), and FOSS crates (nusy-fhir-import, nusy-arrow-git) reach
+# llm-backend, so a PRODUCT dev-dep here is a D17 FOSS→PRODUCT edge. Restores launch claim R9.

@@ -36,17 +36,35 @@ impl ConnectionManager {
             return Ok(());
         }
 
-        let client = tokio::time::timeout(
-            self.config.connect_timeout,
-            async_nats::connect(&self.config.url),
-        )
-        .await
-        .map_err(|_| Error::Timeout(self.config.connect_timeout))?
-        .map_err(|e| Error::Connection(e.to_string()))?;
+        // EX-4986: when TLS material is configured, require mTLS (no plaintext fallback) and
+        // present the client cert; otherwise keep the existing plaintext path byte-for-byte so the
+        // non-PHI fleet bus is unchanged.
+        let client = match &self.config.tls {
+            Some(tls) => {
+                let opts = async_nats::ConnectOptions::new()
+                    .require_tls(true)
+                    .add_root_certificates(tls.ca_path.clone())
+                    .add_client_certificate(tls.cert_path.clone(), tls.key_path.clone());
+                tokio::time::timeout(
+                    self.config.connect_timeout,
+                    opts.connect(self.config.url.clone()),
+                )
+                .await
+                .map_err(|_| Error::Timeout(self.config.connect_timeout))?
+                .map_err(|e| Error::Connection(e.to_string()))?
+            }
+            None => tokio::time::timeout(
+                self.config.connect_timeout,
+                async_nats::connect(&self.config.url),
+            )
+            .await
+            .map_err(|_| Error::Timeout(self.config.connect_timeout))?
+            .map_err(|e| Error::Connection(e.to_string()))?,
+        };
 
         let jetstream = async_nats::jetstream::new(client.clone());
 
-        tracing::info!(url = %self.config.url, "connected to NATS");
+        tracing::info!(url = %self.config.url, mtls = self.config.is_mtls(), "connected to NATS");
 
         self.client = Some(client);
         self.jetstream = Some(jetstream);

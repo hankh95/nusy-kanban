@@ -4,6 +4,7 @@ description = "Arrow-native kanban engine — SHACL shapes, graph-native PRs, du
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
 repository.workspace = true
 keywords = ["kanban", "arrow", "neurosymbolic", "nats", "project-management"]
 categories = ["command-line-utilities", "data-structures"]

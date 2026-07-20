@@ -160,7 +160,7 @@ fn test_chunks_batch_round_trip() {
 #[test]
 fn test_triples_schema_has_source_chunk_id() {
     let schema = nusy_arrow_core::schema::triples_schema();
-    assert_eq!(schema.fields().len(), 19); // EX-4681 +object_datatype, EX-4682 +epistemic_status
+    assert_eq!(schema.fields().len(), 20); // +object_datatype(EX-4681) +epistemic_status(EX-4682) +salience(EX-5021)
     assert_eq!(schema.field(col::SOURCE_CHUNK_ID).name(), "source_chunk_id");
     // Verify it's nullable (triples may not have chunk-level provenance)
     assert!(schema.field(col::SOURCE_CHUNK_ID).is_nullable());
@@ -179,16 +179,11 @@ fn test_symbolic_why_trace() {
         subject: "nusy:Scarecrow".to_string(),
         predicate: "nusy:found".to_string(),
         object: "nusy:TinWoodman".to_string(),
-        graph: None,
         confidence: Some(0.95),
         source_document: Some("wizard-of-oz.md".to_string()),
         source_chunk_id: Some("chunk_woz_001".to_string()),
         extracted_by: Some("DGX".to_string()),
-        caused_by: None,
-        derived_from: None,
-        consolidated_at: None,
-        certifiability_class: None,
-        object_datatype: None,
+        ..Default::default()
     };
 
     store
@@ -272,16 +267,10 @@ fn test_backward_compat_null_source_chunk_id() {
         subject: "nusy:Dorothy".to_string(),
         predicate: "rdf:type".to_string(),
         object: "nusy:Character".to_string(),
-        graph: None,
         confidence: Some(0.9),
         source_document: Some("wizard-of-oz.md".to_string()),
-        source_chunk_id: None, // No chunk-level provenance
         extracted_by: Some("DGX".to_string()),
-        caused_by: None,
-        derived_from: None,
-        consolidated_at: None,
-        certifiability_class: None,
-        object_datatype: None,
+        ..Default::default()
     };
 
     store
@@ -325,46 +314,31 @@ fn test_multiple_triples_same_chunk() {
             subject: "nusy:Scarecrow".to_string(),
             predicate: "nusy:found".to_string(),
             object: "nusy:TinWoodman".to_string(),
-            graph: None,
             confidence: Some(0.95),
             source_document: Some("wizard-of-oz.md".to_string()),
             source_chunk_id: Some("chunk_woz_001".to_string()),
             extracted_by: Some("DGX".to_string()),
-            caused_by: None,
-            derived_from: None,
-            consolidated_at: None,
-            certifiability_class: None,
-            object_datatype: None,
+            ..Default::default()
         },
         Triple {
             subject: "nusy:TinWoodman".to_string(),
             predicate: "nusy:location".to_string(),
             object: "nusy:Forest".to_string(),
-            graph: None,
             confidence: Some(0.90),
             source_document: Some("wizard-of-oz.md".to_string()),
             source_chunk_id: Some("chunk_woz_001".to_string()), // Same chunk
             extracted_by: Some("DGX".to_string()),
-            caused_by: None,
-            derived_from: None,
-            consolidated_at: None,
-            certifiability_class: None,
-            object_datatype: None,
+            ..Default::default()
         },
         Triple {
             subject: "nusy:Dorothy".to_string(),
             predicate: "nusy:livesIn".to_string(),
             object: "nusy:Kansas".to_string(),
-            graph: None,
             confidence: Some(0.99),
             source_document: Some("wizard-of-oz.md".to_string()),
             source_chunk_id: Some("chunk_woz_000".to_string()), // Different chunk
             extracted_by: Some("DGX".to_string()),
-            caused_by: None,
-            derived_from: None,
-            consolidated_at: None,
-            certifiability_class: None,
-            object_datatype: None,
+            ..Default::default()
         },
     ];
 

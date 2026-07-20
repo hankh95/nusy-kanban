@@ -98,7 +98,7 @@ pub fn items_schema() -> Arc<Schema> {
         Field::new("body", DataType::Utf8, true),
         Field::new("body_hash", DataType::Utf8, true),
         Field::new("deleted", DataType::Boolean, false),
-        Field::new("resolution", DataType::Utf8, true), // completed, superseded, wont_do, duplicate, obsolete, merged
+        Field::new("resolution", DataType::Utf8, true), // completed, superseded, wont_do, duplicate, obsolete, merged, refuted
         Field::new("closed_by", DataType::Utf8, true),  // provenance URI (e.g., PROP-2025)
         Field::new(
             "updated_at",

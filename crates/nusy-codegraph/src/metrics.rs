@@ -231,7 +231,7 @@ pub fn largest_nodes(nodes: &[CodeNode], top_k: usize) -> Vec<&CodeNode> {
         })
         .collect();
 
-    sortable.sort_by(|a, b| b.loc.cmp(&a.loc));
+    sortable.sort_by_key(|n| std::cmp::Reverse(n.loc));
     sortable.truncate(top_k);
     sortable
 }

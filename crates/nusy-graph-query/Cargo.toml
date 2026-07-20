@@ -4,6 +4,7 @@ description = "Graph-native semantic search for Arrow RecordBatches — embeddin
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
 repository.workspace = true
 keywords = ["semantic-search", "embeddings", "arrow", "knowledge-graph", "neurosymbolic"]
 categories = ["data-structures", "science"]

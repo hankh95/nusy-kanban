@@ -177,8 +177,8 @@ mod tests {
     #[test]
     fn test_max_id_ignores_other_prefixes() {
         let batch = make_items_batch(&["EXP-100", "VOY-500", "CHORE-300"]);
-        assert_eq!(max_id_for_type(&[batch.clone()], "EXP"), 100);
-        assert_eq!(max_id_for_type(&[batch.clone()], "VOY"), 500);
+        assert_eq!(max_id_for_type(std::slice::from_ref(&batch), "EXP"), 100);
+        assert_eq!(max_id_for_type(std::slice::from_ref(&batch), "VOY"), 500);
         assert_eq!(max_id_for_type(&[batch], "CHORE"), 300);
     }
 

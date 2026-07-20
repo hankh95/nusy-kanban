@@ -120,7 +120,7 @@ fn main() {
             .or_insert(0) += 1;
     }
     let mut kinds: Vec<(String, usize)> = kind_counts.into_iter().collect();
-    kinds.sort_by(|a, b| b.1.cmp(&a.1));
+    kinds.sort_by_key(|k| std::cmp::Reverse(k.1));
     for (k, c) in kinds {
         println!("  {k}: {c}");
     }
@@ -134,7 +134,7 @@ fn main() {
             .or_insert(0) += 1;
     }
     let mut preds: Vec<(String, usize)> = pred_counts.into_iter().collect();
-    preds.sort_by(|a, b| b.1.cmp(&a.1));
+    preds.sort_by_key(|p| std::cmp::Reverse(p.1));
     for (p, c) in preds {
         println!("  {p}: {c}");
     }

@@ -20,16 +20,9 @@ fn triple(subj: &str, pred: &str, obj: &str) -> Triple {
         subject: subj.to_string(),
         predicate: pred.to_string(),
         object: obj.to_string(),
-        graph: None,
         confidence: Some(0.9),
-        source_document: None,
-        source_chunk_id: None,
         extracted_by: Some("integration-test".to_string()),
-        caused_by: None,
-        derived_from: None,
-        consolidated_at: None,
-        certifiability_class: None,
-        object_datatype: None,
+        ..Default::default()
     }
 }
 
@@ -44,8 +37,6 @@ fn triple_with_provenance(
         caused_by: caused_by.map(String::from),
         derived_from: derived_from.map(String::from),
         consolidated_at: Some(chrono::Utc::now().timestamp_millis()),
-        certifiability_class: None,
-        object_datatype: None,
         ..triple(subj, pred, obj)
     }
 }
@@ -221,13 +212,11 @@ fn test_provenance_survives_commit_checkout() {
         graph: Some("prov-test".to_string()),
         confidence: Some(0.99),
         source_document: Some("source.md".to_string()),
-        source_chunk_id: None,
         extracted_by: Some("DGX".to_string()),
         caused_by: Some("t-cause".to_string()),
         derived_from: Some("t-origin".to_string()),
         consolidated_at: Some(now_ms),
-        certifiability_class: None,
-        object_datatype: None,
+        ..Default::default()
     };
     obj.store
         .add_triple(&t, Namespace::World, YLayer::Reasoning)
@@ -432,16 +421,13 @@ fn test_save_restore_with_provenance() {
         subject: "s1".to_string(),
         predicate: "p1".to_string(),
         object: "o1".to_string(),
-        graph: None,
         confidence: Some(0.95),
         source_document: Some("doc.md".to_string()),
-        source_chunk_id: None,
         extracted_by: Some("DGX".to_string()),
         caused_by: Some("cause-id".to_string()),
         derived_from: Some("derive-id".to_string()),
         consolidated_at: Some(now_ms),
-        certifiability_class: None,
-        object_datatype: None,
+        ..Default::default()
     };
     obj.store
         .add_triple(&t, Namespace::World, YLayer::Semantic)

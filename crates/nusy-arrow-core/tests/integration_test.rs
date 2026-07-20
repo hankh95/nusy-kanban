@@ -12,16 +12,9 @@ fn triple(subj: &str, pred: &str, obj: &str) -> Triple {
         subject: subj.to_string(),
         predicate: pred.to_string(),
         object: obj.to_string(),
-        graph: None,
         confidence: Some(0.9),
-        source_document: None,
-        source_chunk_id: None,
         extracted_by: Some("integration-test".to_string()),
-        caused_by: None,
-        derived_from: None,
-        consolidated_at: None,
-        certifiability_class: None,
-        object_datatype: None,
+        ..Default::default()
     }
 }
 
@@ -298,8 +291,7 @@ fn test_provenance_columns_populated() {
         caused_by: Some("t-parent".to_string()),
         derived_from: Some("t-origin".to_string()),
         consolidated_at: Some(now_ms),
-        certifiability_class: None,
-        object_datatype: None,
+        ..Default::default()
     };
 
     store
@@ -348,8 +340,6 @@ fn test_causal_chain_across_namespaces() {
         subject: "world:fact".to_string(),
         predicate: "rdf:type".to_string(),
         object: "Observation".to_string(),
-        caused_by: None,
-        derived_from: None,
         ..triple("world:fact", "rdf:type", "Observation")
     };
     let id0 = store
@@ -361,7 +351,6 @@ fn test_causal_chain_across_namespaces() {
         subject: "research:conclusion".to_string(),
         predicate: "rdf:type".to_string(),
         object: "Finding".to_string(),
-        caused_by: None,
         derived_from: Some(id0.clone()),
         ..triple("research:conclusion", "rdf:type", "Finding")
     };
@@ -375,7 +364,6 @@ fn test_causal_chain_across_namespaces() {
         predicate: "rdf:type".to_string(),
         object: "Decision".to_string(),
         caused_by: Some(id1.clone()),
-        derived_from: None,
         ..triple("self:action", "rdf:type", "Decision")
     };
     let id2 = store

@@ -203,6 +203,13 @@ impl BuildOrchestrator {
     ) -> Result<WorkspaceBuildReport, String> {
         let overall_start = Instant::now();
 
+        // A `--clean` build bypasses the compiler cache so every function is
+        // compiled fresh (cache_hits stays 0). Previously `config.clean` was
+        // plumbed through but never honored, so `nk build --clean` still
+        // reported cached > 0 from intra-run cross-crate duplicate body-hashes
+        // (CH-6044).
+        self.compiler.set_bypass_cache(config.clean);
+
         // ── Step 1: Get topological build order ──────────────────────────────
         let crate_graph =
             build_crate_graph(workspace_root).map_err(|e| format!("build_crate_graph: {e}"))?;

@@ -207,7 +207,7 @@ pub fn compute_agent_stats(runs_batches: &[RecordBatch]) -> Vec<AgentStats> {
         })
         .collect();
 
-    result.sort_by(|a, b| b.completed.cmp(&a.completed));
+    result.sort_by_key(|x| std::cmp::Reverse(x.completed));
     result
 }
 
@@ -291,7 +291,7 @@ pub fn filter_history(
     }
 
     // Sort by completion time, most recent first
-    entries.sort_by(|a, b| b.completed_ms.cmp(&a.completed_ms));
+    entries.sort_by_key(|x| std::cmp::Reverse(x.completed_ms));
     entries
 }
 

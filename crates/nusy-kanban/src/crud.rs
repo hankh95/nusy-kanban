@@ -29,9 +29,32 @@ pub enum CrudError {
 
     #[error("Duplicate ID: {0} already exists")]
     DuplicateId(String),
+
+    #[error(
+        "Claim conflict: {id} is already in_progress under {current} — cannot claim for {attempted} \
+         without --force (atomic exclusive claim, CH-4905)"
+    )]
+    ClaimConflict {
+        id: String,
+        current: String,
+        attempted: String,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, CrudError>;
+
+/// What [`KanbanStore::ratify_phase`] did — the built-in verify (the whole point of CH-4906: a
+/// partial strip must be impossible-or-caught, never silent).
+#[derive(Debug, Clone)]
+pub struct RatifyReport {
+    /// Items that had `pending-ratification` stripped.
+    pub stripped: Vec<String>,
+    /// Voyage (`VY-`) items moved to `in_progress` (sprint-started).
+    pub voyages_started: Vec<String>,
+    /// Items STILL carrying `pending-ratification` under this phase tag after the strip — MUST be
+    /// 0. Any non-zero is a partial ratification (the silent-failure bug, now caught).
+    pub remaining_pending: usize,
+}
 
 /// Input for creating a new kanban item.
 #[derive(Debug, Clone)]
@@ -351,6 +374,53 @@ impl KanbanStore {
         Err(CrudError::NotFound(id.to_string()))
     }
 
+    /// Read an item's current `(status, assignee)` — `assignee` is `None` when unset.
+    pub fn status_and_assignee(&self, id: &str) -> Result<(String, Option<String>)> {
+        let item = self.get_item(id)?; // 1-row batch
+        let status = item
+            .column(items_col::STATUS)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("status column")
+            .value(0)
+            .to_string();
+        let assignee_col = item
+            .column(items_col::ASSIGNEE)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("assignee column");
+        let assignee = if assignee_col.is_null(0) || assignee_col.value(0).is_empty() {
+            None
+        } else {
+            Some(assignee_col.value(0).to_string())
+        };
+        Ok((status, assignee))
+    }
+
+    /// **Atomic exclusive claim guard (CH-4905).** Reject a cross-agent claim: if `id` is already
+    /// `in_progress` under a *different* agent and `forced` is false, return
+    /// [`CrudError::ClaimConflict`]. Allowed (returns `Ok`): not yet `in_progress`, currently
+    /// unassigned, a self-reclaim (same agent), or `forced` (an audited handoff). This makes
+    /// `nk move <id> in_progress --assign X` a true mutex rather than a last-writer-wins overwrite —
+    /// the second agent to claim an in-flight item is told to pick something else.
+    pub fn check_exclusive_claim(&self, id: &str, new_assignee: &str, forced: bool) -> Result<()> {
+        if forced {
+            return Ok(());
+        }
+        let (status, current) = self.status_and_assignee(id)?;
+        if status == "in_progress"
+            && let Some(current) = current
+            && current != new_assignee
+        {
+            return Err(CrudError::ClaimConflict {
+                id: id.to_string(),
+                current,
+                attempted: new_assignee.to_string(),
+            });
+        }
+        Ok(())
+    }
+
     /// Update an item's status. Returns the old status.
     pub fn update_status(
         &mut self,
@@ -600,9 +670,157 @@ impl KanbanStore {
         self.touch_updated_at(id)
     }
 
+    /// Read an item's current tags (empty if none).
+    pub fn tags_of(&self, id: &str) -> Result<Vec<String>> {
+        let item = self.get_item(id)?;
+        let Some(list) = item
+            .column(items_col::TAGS)
+            .as_any()
+            .downcast_ref::<ListArray>()
+        else {
+            return Ok(Vec::new());
+        };
+        if list.is_null(0) {
+            return Ok(Vec::new());
+        }
+        let values = list.value(0);
+        let Some(strs) = values.as_any().downcast_ref::<StringArray>() else {
+            return Ok(Vec::new());
+        };
+        Ok((0..strs.len()).map(|i| strs.value(i).to_string()).collect())
+    }
+
+    /// **First-class ratification (CH-4906).** In ONE server-side call, strip the
+    /// `pending-ratification` tag from every item carrying `phase_tag`, move `VY-` items to
+    /// `in_progress` (the sprint-start), and **re-verify** that none remain pending. Replaces the
+    /// fragile shell-loop strip that silently left 23 items pending (zsh word-split / alias-in-subshell
+    /// footguns). The single-writer applies this atomically; `remaining_pending` is the built-in
+    /// assertion that the strip was total.
+    pub fn ratify_phase(&mut self, phase_tag: &str) -> Result<RatifyReport> {
+        const PENDING: &str = "pending-ratification";
+
+        // Pass 1 (immutable): collect the drafts to ratify — items carrying BOTH the phase tag and
+        // pending-ratification. Collect IDs first; we cannot mutate while borrowing the batches.
+        let mut targets: Vec<(String, Vec<String>)> = Vec::new();
+        for batch in &self.items_batches {
+            let ids = batch
+                .column(items_col::ID)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .expect("id column");
+            for row in 0..batch.num_rows() {
+                let id = ids.value(row);
+                let tags = self.tags_of(id)?;
+                if tags.iter().any(|t| t == phase_tag) && tags.iter().any(|t| t == PENDING) {
+                    targets.push((id.to_string(), tags));
+                }
+            }
+        }
+
+        // Pass 2 (mutable): strip the tag, sprint-start voyages.
+        let mut stripped = Vec::new();
+        let mut voyages_started = Vec::new();
+        for (id, tags) in &targets {
+            let kept: Vec<String> = tags.iter().filter(|t| *t != PENDING).cloned().collect();
+            self.update_tags(id, &kept)?;
+            stripped.push(id.clone());
+
+            if id.starts_with("VY-") {
+                let status = {
+                    let item = self.get_item(id)?;
+                    item.column(items_col::STATUS)
+                        .as_any()
+                        .downcast_ref::<StringArray>()
+                        .expect("status column")
+                        .value(0)
+                        .to_string()
+                };
+                if status != "in_progress" {
+                    self.update_status(id, "in_progress", Some("ratify"), false, Some("ratified"))?;
+                    voyages_started.push(id.clone());
+                }
+            }
+        }
+
+        // Pass 3 (verify): nothing under this phase may still be pending. This is the guarantee.
+        let mut remaining_pending = 0;
+        for batch in &self.items_batches {
+            let ids = batch
+                .column(items_col::ID)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .expect("id column");
+            for row in 0..batch.num_rows() {
+                let tags = self.tags_of(ids.value(row))?;
+                if tags.iter().any(|t| t == phase_tag) && tags.iter().any(|t| t == PENDING) {
+                    remaining_pending += 1;
+                }
+            }
+        }
+
+        Ok(RatifyReport {
+            stripped,
+            voyages_started,
+            remaining_pending,
+        })
+    }
+
     /// Update an item's related items (replaces entire list).
     pub fn update_related(&mut self, id: &str, related: &[String]) -> Result<()> {
         self.update_list_field(id, items_col::RELATED, related)?;
+        self.touch_updated_at(id)
+    }
+
+    /// Read an item's flat list field (`related` / `depends_on`).
+    ///
+    /// CH-6109: needed so a typed `related`/`dependsOn` edge can be PROJECTED into the
+    /// flat column additively — reading, appending, writing back — rather than replacing
+    /// and silently dropping the other entries.
+    pub fn get_list_field(&self, id: &str, col: usize) -> Result<Vec<String>> {
+        use arrow::array::{Array, ListArray, StringArray};
+        let batch = self.get_item(id)?;
+        let list = batch
+            .column(col)
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .ok_or_else(|| CrudError::NotFound(id.to_string()))?;
+        if list.is_null(0) {
+            return Ok(Vec::new());
+        }
+        let vals = list.value(0);
+        let strs = vals
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| CrudError::NotFound(id.to_string()))?;
+        Ok((0..strs.len())
+            .filter(|i| !strs.is_null(*i))
+            .map(|i| strs.value(i).to_string())
+            .collect())
+    }
+
+    /// Add `value` to a flat list field if absent (CH-6109 projection, additive).
+    pub fn add_to_list_field(&mut self, id: &str, col: usize, value: &str) -> Result<()> {
+        let mut cur = self.get_list_field(id, col)?;
+        if cur.iter().any(|v| v == value) {
+            return Ok(());
+        }
+        cur.push(value.to_string());
+        self.update_list_field(id, col, &cur)?;
+        self.touch_updated_at(id)
+    }
+
+    /// Remove `value` from a flat list field (CH-6109 projection, subtractive).
+    pub fn remove_from_list_field(&mut self, id: &str, col: usize, value: &str) -> Result<()> {
+        let cur = self.get_list_field(id, col)?;
+        let next: Vec<String> = cur
+            .iter()
+            .filter(|v| v.as_str() != value)
+            .cloned()
+            .collect();
+        if next.len() == cur.len() {
+            return Ok(());
+        }
+        self.update_list_field(id, col, &next)?;
         self.touch_updated_at(id)
     }
 
@@ -612,7 +830,7 @@ impl KanbanStore {
         self.touch_updated_at(id)
     }
 
-    /// Update an item's resolution (completed, superseded, wont_do, duplicate, obsolete, merged).
+    /// Update an item's resolution (completed, superseded, wont_do, duplicate, obsolete, merged, refuted).
     pub fn update_resolution(&mut self, id: &str, resolution: Option<&str>) -> Result<()> {
         self.update_nullable_string_field(id, items_col::RESOLUTION, resolution)?;
         self.touch_updated_at(id)
@@ -1648,5 +1866,183 @@ mod tests {
             .unwrap();
         assert_eq!(res.value(0), "superseded");
         assert_eq!(cb.value(0), "PROP-2099");
+    }
+
+    // ── CH-4906: first-class ratify ──────────────────────────────────────────
+
+    fn item_with_tags(store: &mut KanbanStore, ty: ItemType, tags: &[&str]) -> String {
+        store
+            .create_item(&CreateItemInput {
+                title: "ratify test".into(),
+                item_type: ty,
+                priority: None,
+                assignee: None,
+                tags: tags.iter().map(|s| s.to_string()).collect(),
+                related: vec![],
+                depends_on: vec![],
+                body: None,
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn ratify_phase_strips_tag_starts_voyages_and_verifies_zero_remaining() {
+        let mut store = KanbanStore::new();
+        let ex = item_with_tags(
+            &mut store,
+            ItemType::Expedition,
+            &["v19-phase-x", "pending-ratification", "foss"],
+        );
+        let vy = item_with_tags(
+            &mut store,
+            ItemType::Voyage,
+            &["v19-phase-x", "pending-ratification"],
+        );
+        // Out-of-phase draft — must NOT be touched.
+        let other = item_with_tags(
+            &mut store,
+            ItemType::Expedition,
+            &["v19-phase-y", "pending-ratification"],
+        );
+
+        let report = store.ratify_phase("v19-phase-x").unwrap();
+
+        // Built-in verify: nothing under the phase remains pending.
+        assert_eq!(report.remaining_pending, 0);
+        assert_eq!(report.stripped.len(), 2);
+        assert!(report.stripped.contains(&ex) && report.stripped.contains(&vy));
+        // The voyage was sprint-started.
+        assert_eq!(report.voyages_started, vec![vy.clone()]);
+
+        // ex lost pending-ratification but kept its other tags.
+        let ex_tags = store.tags_of(&ex).unwrap();
+        assert!(!ex_tags.iter().any(|t| t == "pending-ratification"));
+        assert!(ex_tags.iter().any(|t| t == "v19-phase-x"));
+        assert!(ex_tags.iter().any(|t| t == "foss"));
+
+        // The out-of-phase draft is untouched (still pending).
+        assert!(
+            store
+                .tags_of(&other)
+                .unwrap()
+                .iter()
+                .any(|t| t == "pending-ratification"),
+            "out-of-phase item must keep its pending-ratification"
+        );
+
+        // The voyage really moved.
+        let item = store.get_item(&vy).unwrap();
+        let st = item
+            .column(items_col::STATUS)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        assert_eq!(st.value(0), "in_progress");
+    }
+
+    #[test]
+    fn ratify_phase_is_noop_when_nothing_pending() {
+        let mut store = KanbanStore::new();
+        item_with_tags(&mut store, ItemType::Expedition, &["v19-phase-z"]); // already ratified
+        let report = store.ratify_phase("v19-phase-z").unwrap();
+        assert_eq!(report.stripped.len(), 0);
+        assert_eq!(report.voyages_started.len(), 0);
+        assert_eq!(report.remaining_pending, 0);
+    }
+
+    // ── CH-4905: atomic exclusive claim ──────────────────────────────────────
+
+    /// Claim `id` for `agent`: move to in_progress + set the assignee (mirrors what the move
+    /// handler now does).
+    fn claim_for(store: &mut KanbanStore, id: &str, agent: &str) {
+        store
+            .update_status(id, "in_progress", Some(agent), false, None)
+            .unwrap();
+        store.update_assignee(id, Some(agent)).unwrap();
+    }
+
+    #[test]
+    fn claim_conflict_when_in_progress_under_another_agent() {
+        let mut store = KanbanStore::new();
+        let id = store
+            .create_item(&sample_input("Contested", ItemType::Expedition))
+            .unwrap();
+        claim_for(&mut store, &id, "Mini");
+        // A second agent's claim is rejected without --force.
+        let err = store.check_exclusive_claim(&id, "DGX1", false).unwrap_err();
+        assert!(
+            matches!(err, CrudError::ClaimConflict { ref current, ref attempted, .. }
+                if current == "Mini" && attempted == "DGX1"),
+            "expected ClaimConflict Mini→DGX1, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn self_reclaim_is_allowed() {
+        let mut store = KanbanStore::new();
+        let id = store
+            .create_item(&sample_input("Mine", ItemType::Expedition))
+            .unwrap();
+        claim_for(&mut store, &id, "Mini");
+        // The owner re-claiming its own in_progress item is fine.
+        assert!(store.check_exclusive_claim(&id, "Mini", false).is_ok());
+    }
+
+    #[test]
+    fn unassigned_in_progress_is_claimable() {
+        let mut store = KanbanStore::new();
+        let id = store
+            .create_item(&sample_input("Orphan", ItemType::Expedition))
+            .unwrap();
+        // in_progress but NO assignee → any agent may claim.
+        store
+            .update_status(&id, "in_progress", None, false, None)
+            .unwrap();
+        assert!(store.check_exclusive_claim(&id, "DGX1", false).is_ok());
+    }
+
+    #[test]
+    fn backlog_item_is_claimable_by_anyone() {
+        let mut store = KanbanStore::new();
+        let id = store
+            .create_item(&CreateItemInput {
+                title: "Backlog w/ stale assignee".into(),
+                item_type: ItemType::Expedition,
+                priority: None,
+                assignee: Some("Mini".into()), // assigned but NOT in_progress
+                tags: vec![],
+                related: vec![],
+                depends_on: vec![],
+                body: None,
+            })
+            .unwrap();
+        // Only in_progress is guarded; a backlog item is claimable regardless of a stale assignee.
+        assert!(store.check_exclusive_claim(&id, "DGX1", false).is_ok());
+    }
+
+    #[test]
+    fn force_overrides_the_claim_guard() {
+        let mut store = KanbanStore::new();
+        let id = store
+            .create_item(&sample_input("Handoff", ItemType::Expedition))
+            .unwrap();
+        claim_for(&mut store, &id, "Mini");
+        // --force is the audited handoff escape hatch.
+        assert!(store.check_exclusive_claim(&id, "DGX1", true).is_ok());
+    }
+
+    #[test]
+    fn status_and_assignee_reads_current_row() {
+        let mut store = KanbanStore::new();
+        let id = store
+            .create_item(&sample_input("Read", ItemType::Expedition))
+            .unwrap();
+        let (status, assignee) = store.status_and_assignee(&id).unwrap();
+        assert_eq!(status, "backlog");
+        assert_eq!(assignee, None);
+        claim_for(&mut store, &id, "Mini");
+        let (status, assignee) = store.status_and_assignee(&id).unwrap();
+        assert_eq!(status, "in_progress");
+        assert_eq!(assignee.as_deref(), Some("Mini"));
     }
 }

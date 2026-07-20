@@ -874,7 +874,10 @@ impl Foo {
             .iter()
             .filter(|n| n.kind == CodeNodeKind::RustMethod)
             .collect();
-        assert!(methods.len() >= 1, "should have at least 1 method in trait");
+        assert!(
+            !methods.is_empty(),
+            "should have at least 1 method in trait"
+        );
     }
 
     #[test]

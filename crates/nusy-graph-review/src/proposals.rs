@@ -4,6 +4,21 @@ use std::sync::Arc;
 
 use crate::schema::{proposals_col, proposals_schema};
 
+/// A typed, read-only projection of a proposal row. Lets consumers (e.g. the OpenDrugGraph review
+/// surface, EX-5859) read proposals as plain fields instead of reaching into Arrow column indices —
+/// the schema-owning crate keeps the column layout private.
+#[derive(Debug, Clone)]
+pub struct ProposalView {
+    pub proposal_id: String,
+    pub proposal_type: String,
+    pub status: String,
+    pub author: String,
+    pub title: String,
+    pub description: Option<String>,
+    /// Creation time, epoch milliseconds UTC.
+    pub created_at_ms: i64,
+}
+
 // ── Status lifecycle ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,6 +138,17 @@ pub struct CreateProposalInput<'a> {
     pub description: Option<&'a str>,
 }
 
+/// A lightweight, owned view of a proposal — the fields a contribution-ledger / "my
+/// contributions" surface needs, without exposing the Arrow batches. Returned by
+/// [`ProposalStore::proposals_by_author`] (CH-6026, the EX-5995 profile ledger read-side).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposalSummary {
+    pub proposal_id: String,
+    pub title: String,
+    pub status: String,
+    pub proposal_type: String,
+}
+
 // ── ProposalStore ───────────────────────────────────────────────────────────
 
 pub struct ProposalStore {
@@ -153,6 +179,18 @@ impl ProposalStore {
     // ── Create ──────────────────────────────────────────────────────────
 
     pub fn create_proposal(&mut self, input: &CreateProposalInput<'_>) -> Result<String> {
+        self.create_proposal_with_floor(input, 0)
+    }
+
+    /// Create a proposal, refusing to allocate at or below `floor`.
+    ///
+    /// Callers that have a durable high-water mark ([`IdFloor`]) should use
+    /// this, so a rolled-back store cannot re-mint an id git already merged.
+    pub fn create_proposal_with_floor(
+        &mut self,
+        input: &CreateProposalInput<'_>,
+        floor: usize,
+    ) -> Result<String> {
         if !VALID_PROPOSAL_TYPES.contains(&input.proposal_type) {
             return Err(ProposalError::InvalidProposalType(
                 input.proposal_type.to_string(),
@@ -162,7 +200,7 @@ impl ProposalStore {
             return Err(ProposalError::InvalidNamespace(input.namespace.to_string()));
         }
 
-        let proposal_id = format!("PROP-{}", self.next_id());
+        let proposal_id = self.next_id_with_floor(floor);
         let now_ms = chrono::Utc::now().timestamp_millis();
 
         let batch = RecordBatch::try_new(
@@ -392,6 +430,41 @@ impl ProposalStore {
         self.proposals_batches.iter().map(|b| b.num_rows()).sum()
     }
 
+    /// All proposals authored by `author`, as lightweight owned summaries (CH-6026 — the
+    /// contribution-ledger read-side the EX-5995 contributor profile consumes). Exact match on the
+    /// `author` column; returns an empty Vec when the author has no contributions. Reads the Arrow
+    /// batches here (mirrors [`Self::list_proposals`]) so a caller never parses columns itself.
+    pub fn proposals_by_author(&self, author: &str) -> Vec<ProposalSummary> {
+        let mut out = Vec::new();
+        for batch in &self.proposals_batches {
+            let col = |idx: usize| {
+                batch
+                    .column(idx)
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .expect("proposals column is Utf8 (schema-guaranteed)")
+            };
+            let (authors, ids, statuses, titles, ptypes) = (
+                col(proposals_col::AUTHOR),
+                col(proposals_col::PROPOSAL_ID),
+                col(proposals_col::STATUS),
+                col(proposals_col::TITLE),
+                col(proposals_col::PROPOSAL_TYPE),
+            );
+            for row in 0..batch.num_rows() {
+                if authors.value(row) == author {
+                    out.push(ProposalSummary {
+                        proposal_id: ids.value(row).to_string(),
+                        title: titles.value(row).to_string(),
+                        status: statuses.value(row).to_string(),
+                        proposal_type: ptypes.value(row).to_string(),
+                    });
+                }
+            }
+        }
+        out
+    }
+
     /// List proposals, optionally filtered by status.
     ///
     /// `status_filter` values:
@@ -459,6 +532,49 @@ impl ProposalStore {
         }
 
         Ok(filtered)
+    }
+
+    /// List proposals as typed [`ProposalView`]s, newest first, applying the same `status_filter`
+    /// as [`ProposalStore::list_proposals`]. Consumers read plain fields, not RecordBatches.
+    pub fn list_proposal_views(&self, status_filter: Option<&str>) -> Result<Vec<ProposalView>> {
+        use arrow::array::TimestampMillisecondArray;
+        let batches = self.list_proposals(status_filter)?;
+        let mut views = Vec::new();
+        for batch in &batches {
+            let col_str = |idx: usize, name: &str| -> Result<StringArray> {
+                batch
+                    .column(idx)
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .cloned()
+                    .ok_or_else(|| ProposalError::InternalError(format!("{name} column downcast")))
+            };
+            let ids = col_str(proposals_col::PROPOSAL_ID, "proposal_id")?;
+            let types = col_str(proposals_col::PROPOSAL_TYPE, "proposal_type")?;
+            let statuses = col_str(proposals_col::STATUS, "status")?;
+            let authors = col_str(proposals_col::AUTHOR, "author")?;
+            let titles = col_str(proposals_col::TITLE, "title")?;
+            let descs = col_str(proposals_col::DESCRIPTION, "description")?;
+            let created = batch
+                .column(proposals_col::CREATED_AT)
+                .as_any()
+                .downcast_ref::<TimestampMillisecondArray>()
+                .ok_or_else(|| ProposalError::InternalError("created_at column downcast".into()))?;
+            for i in 0..batch.num_rows() {
+                views.push(ProposalView {
+                    proposal_id: ids.value(i).to_string(),
+                    proposal_type: types.value(i).to_string(),
+                    status: statuses.value(i).to_string(),
+                    author: authors.value(i).to_string(),
+                    title: titles.value(i).to_string(),
+                    description: (!descs.is_null(i)).then(|| descs.value(i).to_string()),
+                    created_at_ms: created.value(i),
+                });
+            }
+        }
+        // Newest first — the queue and the history feed both read most-recent-first.
+        views.sort_by_key(|v| std::cmp::Reverse(v.created_at_ms));
+        Ok(views)
     }
 
     /// Search proposals by text term across titles and descriptions.
@@ -536,8 +652,47 @@ impl ProposalStore {
     /// ID base offset — starts at 2000 to clearly separate from GitHub PR numbers.
     const PROPOSAL_ID_BASE: usize = 2000;
 
-    fn next_id(&self) -> String {
-        format!("{}", Self::PROPOSAL_ID_BASE + self.count() + 1)
+    /// Highest `PROP-<n>` currently in the store, or the base if empty.
+    ///
+    /// Was `BASE + count() + 1`, which is wrong in two ways. Counting rows
+    /// rather than reading ids means **deleting any proposal immediately
+    /// re-mints a live id**, and a store that loses rows (a rollback, a
+    /// truncated save) starts handing out ids it has already used. During
+    /// SG-6057 the count-based allocator produced exactly 2000 + 1452 + 1 =
+    /// PROP-3453 — an id already merged on main.
+    fn max_id(&self) -> usize {
+        let mut max = Self::PROPOSAL_ID_BASE;
+        for batch in &self.proposals_batches {
+            if let Some(ids) = batch
+                .column(proposals_col::PROPOSAL_ID)
+                .as_any()
+                .downcast_ref::<StringArray>()
+            {
+                for i in 0..ids.len() {
+                    if ids.is_null(i) {
+                        continue;
+                    }
+                    if let Some(n) = ids
+                        .value(i)
+                        .strip_prefix("PROP-")
+                        .and_then(|s| s.parse::<usize>().ok())
+                        && n > max
+                    {
+                        max = n;
+                    }
+                }
+            }
+        }
+        max
+    }
+
+    /// Allocate the next proposal id, never at or below `floor`.
+    ///
+    /// The floor is the durable high-water mark (see [`IdFloor`]). The store
+    /// alone cannot be trusted to know which ids are taken: it is exactly the
+    /// thing that rolls back.
+    fn next_id_with_floor(&self, floor: usize) -> String {
+        format!("PROP-{}", self.max_id().max(floor) + 1)
     }
 
     fn find_proposal(&self, proposal_id: &str) -> Result<(usize, usize)> {
@@ -1127,5 +1282,134 @@ mod tests {
         let store = make_store_with_mixed_statuses();
         let results = store.search_proposals("TIERED COVENANT").unwrap();
         assert!(!results.is_empty());
+    }
+
+    #[test]
+    fn proposals_by_author_returns_only_that_authors_contributions() {
+        // CH-6026: the contribution-ledger read-side.
+        let mut store = ProposalStore::new();
+        fn mk<'a>(author: &'a str, title: &'a str) -> CreateProposalInput<'a> {
+            CreateProposalInput {
+                author,
+                title,
+                source_branch: "contribution",
+                target_branch: "main",
+                namespace: "world",
+                proposal_type: "knowledge_change",
+                description: None,
+            }
+        }
+        let a1 = store
+            .create_proposal(&mk("alice@x.com", "Add: warfarin + aspirin"))
+            .unwrap();
+        let _b1 = store
+            .create_proposal(&mk("bob@x.com", "Add: digoxin + quinidine"))
+            .unwrap();
+        let a2 = store
+            .create_proposal(&mk("alice@x.com", "Add: simvastatin + clarithromycin"))
+            .unwrap();
+
+        let mine = store.proposals_by_author("alice@x.com");
+        assert_eq!(mine.len(), 2, "only alice's two contributions");
+        let ids: Vec<&str> = mine.iter().map(|s| s.proposal_id.as_str()).collect();
+        assert!(ids.contains(&a1.as_str()) && ids.contains(&a2.as_str()));
+        // Every returned summary is fully populated + is a fresh draft.
+        assert!(mine.iter().all(|s| !s.title.is_empty()
+            && s.status == "draft"
+            && s.proposal_type == "knowledge_change"));
+        // Never leaks another author's contribution.
+        assert!(!ids.contains(&_b1.as_str()));
+        // An author with no contributions gets an empty ledger (not an error).
+        assert!(store.proposals_by_author("nobody@x.com").is_empty());
+    }
+
+    // ─── CH-6058 / SG-6057: id allocation must not re-mint merged ids ────────
+
+    fn mk(store: &mut ProposalStore, title: &str) -> String {
+        store
+            .create_proposal(&CreateProposalInput {
+                author: "agent",
+                title,
+                source_branch: "b",
+                target_branch: "main",
+                namespace: "work",
+                proposal_type: "code_change",
+                description: None,
+            })
+            .expect("create")
+    }
+
+    /// Ids must come from the MAX, not the row count. With the old
+    /// `base + count + 1`, deleting any proposal instantly re-mints a live id.
+    #[test]
+    fn allocation_is_max_based_not_count_based() {
+        let mut store = ProposalStore::new();
+        let a = mk(&mut store, "a");
+        let b = mk(&mut store, "b");
+        let c = mk(&mut store, "c");
+        assert_eq!(a, "PROP-2001");
+        assert_eq!(b, "PROP-2002");
+        assert_eq!(c, "PROP-2003");
+
+        // Whatever the row count does, the next id must never revisit 2003.
+        let next = store.next_id_with_floor(0);
+        assert_eq!(next, "PROP-2004");
+        assert!(
+            next != a && next != b && next != c,
+            "allocator re-minted a live id"
+        );
+    }
+
+    /// The SG-6057 scenario, end to end: a rolled-back store whose max is
+    /// PROP-3452 while git already merged 3453/3454 and 3455 is open.
+    /// Without a floor the allocator hands out PROP-3453 — a live collision.
+    #[test]
+    fn floor_prevents_reminting_ids_already_merged_in_git() {
+        let mut store = ProposalStore::new();
+        // Stand in for the truncated store: highest surviving id is 2001.
+        let last = mk(&mut store, "survivor");
+        assert_eq!(last, "PROP-2001");
+
+        // Unprotected, the next id collides with the (lost but merged) 2002.
+        assert_eq!(store.next_id_with_floor(0), "PROP-2002");
+
+        // With the durable floor knowing 2004 was already handed out, the
+        // allocator must skip clear of every merged id.
+        assert_eq!(store.next_id_with_floor(2004), "PROP-2005");
+    }
+
+    /// A floor at or below the store max must not perturb normal allocation.
+    #[test]
+    fn floor_below_store_max_is_a_no_op() {
+        let mut store = ProposalStore::new();
+        mk(&mut store, "a");
+        mk(&mut store, "b");
+        assert_eq!(store.next_id_with_floor(0), "PROP-2003");
+        assert_eq!(store.next_id_with_floor(2001), "PROP-2003");
+        assert_eq!(store.next_id_with_floor(2002), "PROP-2003");
+    }
+
+    /// create_proposal_with_floor actually applies the floor.
+    #[test]
+    fn create_with_floor_skips_past_the_floor() {
+        let mut store = ProposalStore::new();
+        let id = store
+            .create_proposal_with_floor(
+                &CreateProposalInput {
+                    author: "agent",
+                    title: "after a rollback",
+                    source_branch: "b",
+                    target_branch: "main",
+                    namespace: "work",
+                    proposal_type: "code_change",
+                    description: None,
+                },
+                3455,
+            )
+            .expect("create");
+        assert_eq!(id, "PROP-3456");
+
+        // And the next one continues from there, not from the store count.
+        assert_eq!(store.next_id_with_floor(3455), "PROP-3457");
     }
 }

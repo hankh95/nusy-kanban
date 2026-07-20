@@ -43,6 +43,11 @@ pub enum LlmError {
         /// The `max_tokens` cap configured on the request that was hit.
         max_tokens: u32,
     },
+
+    /// EX-4985 — the LLM-egress PHI gate denied the call (off-list endpoint, plaintext transport,
+    /// or a PHI prompt without a de-identification attestation). Always fail-closed.
+    #[error("Egress denied: {0}")]
+    Egress(#[from] crate::egress::EgressError),
 }
 
 /// Convenience alias for `std::result::Result<T, LlmError>`.

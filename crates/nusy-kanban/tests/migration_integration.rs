@@ -4,12 +4,8 @@
 //! actual file layout and content patterns.
 
 use nusy_kanban::config::BoardConfig;
-use nusy_kanban::migrate::{
-    MigrateResult, extract_relations, migrate_board, migrate_boards, parse_markdown_file,
-    parse_turtle_blocks,
-};
+use nusy_kanban::migrate::{migrate_board, migrate_boards, parse_markdown_file};
 use std::collections::HashMap;
-use std::path::Path;
 
 /// Helper: create a realistic development board config.
 fn dev_board_config() -> BoardConfig {
@@ -42,6 +38,7 @@ fn dev_board_config() -> BoardConfig {
 }
 
 /// Helper: create a research board config.
+#[allow(dead_code)] // symmetric to dev_board_config; kept for research-board migration tests
 fn research_board_config() -> BoardConfig {
     BoardConfig {
         name: "research".to_string(),

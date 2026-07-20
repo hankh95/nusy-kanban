@@ -1226,7 +1226,7 @@ mod tests {
 
         let results = hybrid_query(store.items_batches(), "arrow kanban", None, None, 20);
         // Both match structurally (no filters extracted), but "Arrow-Kanban" has text match
-        assert!(results.len() >= 1);
+        assert!(!results.is_empty());
         // The one with text match should score higher
         assert_eq!(results[0].id, "EX-1300");
         assert!(results[0].score > results.last().unwrap().score);
@@ -1273,7 +1273,7 @@ mod tests {
             Some(&provider),
             20,
         );
-        assert!(results.len() >= 1);
+        assert!(!results.is_empty());
         // All results should have scores
         for r in &results {
             assert!(r.score > -1.0);

@@ -20,6 +20,9 @@ struct CreateRequest {
     #[serde(default)]
     depends_on: Vec<String>,
     body: Option<String>,
+    /// CH-6109: typed relationships as `predicate:TARGET-ID`, applied at create time.
+    #[serde(default)]
+    relate: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -28,9 +31,63 @@ struct CreateResponse {
     title: String,
     item_type: String,
     status: String,
+    /// The typed edges actually recorded — so the caller sees what landed rather than
+    /// assuming their --relate flags were honoured.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    relationships: Vec<String>,
 }
 
-pub(crate) fn handle_create(payload: &[u8], store: &mut KanbanStore) -> Result<Vec<u8>, Vec<u8>> {
+/// Parse `predicate:TARGET` specs and validate each against the vocabulary (CH-6109).
+///
+/// Validation happens BEFORE any mutation, and the first bad edge rejects the whole
+/// request — a partially-related item is worse than a refused one, because the caller
+/// cannot tell which half landed.
+///
+/// The target's type is taken from the store when it resolves, else inferred from the ID
+/// prefix. An unresolvable target does NOT fail: the research trio (H/M/EXPR) is
+/// cross-board, and refusing edges to items this store cannot see would make the whole
+/// feature unusable for its main use case.
+fn parse_and_validate(
+    specs: &[String],
+    source_type: &str,
+    source_id: Option<&str>,
+) -> Result<Vec<(String, String)>, Vec<u8>> {
+    use nusy_kanban::relation_vocab as vocab;
+    let mut out = Vec::new();
+    for spec in specs {
+        let (pred, target) = vocab::parse_spec(spec).ok_or_else(|| {
+            error_response(
+                &format!(
+                    "malformed --relate '{spec}' — expected <predicate>:<TARGET-ID>, e.g. implements:VY-1234"
+                ),
+                "INVALID_RELATION",
+            )
+        })?;
+
+        // The ID prefix IS the type in this scheme (EX-/VY-/H-/EXPR-/M-/PAPER-), so no
+        // store lookup is needed — and an unknown prefix yields None, which skips RANGE
+        // validation rather than rejecting a cross-board target we cannot classify.
+        let target_type = vocab::type_from_id(target);
+
+        let p = vocab::validate_edge(
+            pred,
+            source_id.unwrap_or("<new>"),
+            source_type,
+            target,
+            target_type,
+        )
+        .map_err(|e| error_response(&format!("{e}"), "INVALID_RELATION"))?;
+
+        out.push((p.name.to_string(), target.to_string()));
+    }
+    Ok(out)
+}
+
+pub(crate) fn handle_create(
+    payload: &[u8],
+    store: &mut KanbanStore,
+    relations: &mut nusy_kanban::relations::RelationsStore,
+) -> Result<Vec<u8>, Vec<u8>> {
     let req: CreateRequest = parse_payload(payload)?;
 
     let item_type = ItemType::from_str_loose(&req.item_type).ok_or_else(|| {
@@ -40,14 +97,32 @@ pub(crate) fn handle_create(payload: &[u8], store: &mut KanbanStore) -> Result<V
         )
     })?;
 
+    // CH-6109: parse and VALIDATE every typed edge BEFORE creating the item, so a bad
+    // relationship never leaves a half-related item behind. All-or-nothing.
+    let edges = parse_and_validate(&req.relate, item_type.as_str(), None)?;
+
+    // `related`/`dependsOn` edges ALSO project into the flat columns, so roadmap /
+    // critical-path / worklist / nk show keep reading exactly what they read today. The
+    // flat lists are a projection of the typed edges, written in the same operation —
+    // never a second independently-authored source of truth.
+    let mut related = req.related;
+    let mut depends_on = req.depends_on;
+    for (pred, target) in &edges {
+        match nusy_kanban::relation_vocab::flat_column_for(pred) {
+            Some("related") if !related.contains(target) => related.push(target.clone()),
+            Some("depends_on") if !depends_on.contains(target) => depends_on.push(target.clone()),
+            _ => {}
+        }
+    }
+
     let input = CreateItemInput {
         title: req.title.clone(),
         item_type,
         priority: req.priority,
         assignee: req.assignee,
         tags: req.tags,
-        related: req.related,
-        depends_on: req.depends_on,
+        related,
+        depends_on,
         body: req.body,
     };
 
@@ -55,11 +130,18 @@ pub(crate) fn handle_create(payload: &[u8], store: &mut KanbanStore) -> Result<V
         .create_item(&input)
         .map_err(|e| error_response(&format!("{e}"), "CREATE_FAILED"))?;
 
+    for (pred, target) in &edges {
+        if let Err(e) = relations.add_relation(&id, target, pred) {
+            eprintln!("kanban: warning — failed to record {id} -{pred}-> {target}: {e}");
+        }
+    }
+
     serialize_response(&CreateResponse {
         id,
         title: req.title,
         item_type: req.item_type,
         status: "backlog".to_string(),
+        relationships: edges.iter().map(|(p, t)| format!("{p}:{t}")).collect(),
     })
 }
 
@@ -107,6 +189,17 @@ pub(crate) fn handle_move(payload: &[u8], store: &mut KanbanStore) -> Result<Vec
         col.value(0).to_string()
     };
 
+    // Atomic exclusive claim (CH-4905): a `move … in_progress --assign X` is a claim. Reject it
+    // if the item is already in_progress under a different agent (without --force) — turns
+    // assignment into a true mutex instead of last-writer-wins.
+    if req.status == "in_progress"
+        && let Some(assignee) = req.assignee.as_deref()
+    {
+        store
+            .check_exclusive_claim(&req.id, assignee, req.force)
+            .map_err(|e| error_response(&format!("{e}"), "CLAIM_CONFLICT"))?;
+    }
+
     store
         .update_status(
             &req.id,
@@ -116,6 +209,14 @@ pub(crate) fn handle_move(payload: &[u8], store: &mut KanbanStore) -> Result<Vec
             req.reason.as_deref(),
         )
         .map_err(|e| error_response(&format!("{e}"), "MOVE_FAILED"))?;
+
+    // CH-4905: make the claim STICK — `move --assign` must set the assignee column, not just the
+    // run-provenance agent (previously it didn't, hence the `nk update --assign` follow-up).
+    if let Some(assignee) = req.assignee.as_deref() {
+        store
+            .update_assignee(&req.id, Some(assignee))
+            .map_err(|e| error_response(&format!("{e}"), "ASSIGN_FAILED"))?;
+    }
 
     // Apply resolution if provided
     if let Some(ref res) = req.resolution {
@@ -139,6 +240,38 @@ pub(crate) fn handle_move(payload: &[u8], store: &mut KanbanStore) -> Result<Vec
     })
 }
 
+// ── Ratify (CH-4906) ─────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct RatifyRequest {
+    phase_tag: String,
+}
+
+/// First-class phase ratification: strip `pending-ratification` from every item carrying the phase
+/// tag, sprint-start its voyages, and verify none remain — atomically, server-side (no shell loop).
+pub(crate) fn handle_ratify(payload: &[u8], store: &mut KanbanStore) -> Result<Vec<u8>, Vec<u8>> {
+    let req: RatifyRequest = parse_payload(payload)?;
+    let report = store
+        .ratify_phase(&req.phase_tag)
+        .map_err(|e| error_response(&format!("{e}"), "RATIFY_FAILED"))?;
+    // The built-in verify: a partial strip is a hard error, never a silent success.
+    if report.remaining_pending != 0 {
+        return Err(error_response(
+            &format!(
+                "ratify {}: {} item(s) still pending-ratification after strip (partial ratification)",
+                req.phase_tag, report.remaining_pending
+            ),
+            "RATIFY_INCOMPLETE",
+        ));
+    }
+    serialize_response(&serde_json::json!({
+        "phase_tag": req.phase_tag,
+        "stripped": report.stripped,
+        "voyages_started": report.voyages_started,
+        "remaining_pending": report.remaining_pending,
+    }))
+}
+
 // ── Update ──────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -151,15 +284,53 @@ struct UpdateRequest {
     body: Option<String>,
     related: Option<Vec<String>>,
     depends_on: Option<Vec<String>>,
+    /// CH-6109: ADD typed edges (`predicate:TARGET`). Additive — unlike `related` /
+    /// `depends_on`, which replace.
+    #[serde(default)]
+    relate: Vec<String>,
+    /// CH-6109: REMOVE typed edges (`predicate:TARGET`).
+    #[serde(default)]
+    unrelate: Vec<String>,
 }
 
-pub(crate) fn handle_update(payload: &[u8], store: &mut KanbanStore) -> Result<Vec<u8>, Vec<u8>> {
+/// Mirror a `related` / `dependsOn` edge into the flat column it projects to (CH-6109).
+///
+/// Only those two predicates project; the rest live purely as typed edges. Additive and
+/// subtractive so the flat list is never wholesale replaced.
+fn project_edge(store: &mut KanbanStore, id: &str, predicate: &str, target: &str, add: bool) {
+    use nusy_kanban::schema::items_col;
+    let col = match nusy_kanban::relation_vocab::flat_column_for(predicate) {
+        Some("related") => items_col::RELATED,
+        Some("depends_on") => items_col::DEPENDS_ON,
+        _ => return,
+    };
+    let r = if add {
+        store.add_to_list_field(id, col, target)
+    } else {
+        store.remove_from_list_field(id, col, target)
+    };
+    if let Err(e) = r {
+        eprintln!("kanban: warning — failed to project {predicate} edge onto {id}: {e}");
+    }
+}
+
+pub(crate) fn handle_update(
+    payload: &[u8],
+    store: &mut KanbanStore,
+    relations: &mut nusy_kanban::relations::RelationsStore,
+) -> Result<Vec<u8>, Vec<u8>> {
     let req: UpdateRequest = parse_payload(payload)?;
 
     // Verify item exists
     store
         .get_item(&req.id)
         .map_err(|e| error_response(&format!("{e}"), "NOT_FOUND"))?;
+
+    // CH-6109: validate every edge BEFORE mutating anything, so a bad relationship never
+    // leaves the item half-updated.
+    let source_type = nusy_kanban::relation_vocab::type_from_id(&req.id).unwrap_or("");
+    let add_edges = parse_and_validate(&req.relate, source_type, Some(&req.id))?;
+    let del_edges = parse_and_validate(&req.unrelate, source_type, Some(&req.id))?;
 
     let mut updated = Vec::new();
 
@@ -206,9 +377,50 @@ pub(crate) fn handle_update(payload: &[u8], store: &mut KanbanStore) -> Result<V
         updated.push("depends_on");
     }
 
+    // CH-6109: apply typed edges. Additive/subtractive — adding one never silently
+    // deletes the others, which is the footgun --related/--depends-on still carry.
+    let mut added = Vec::new();
+    for (pred, target) in &add_edges {
+        match relations.add_relation(&req.id, target, pred) {
+            Ok(_) => {
+                // Keep the flat projection in step. Without this, a typed related/dependsOn
+                // edge added on EDIT is invisible to roadmap / critical-path / worklist /
+                // show — the flat columns stop being a projection and become a stale
+                // second opinion, which is the drift this design exists to prevent.
+                project_edge(store, &req.id, pred, target, true);
+                added.push(format!("{pred}:{target}"));
+            }
+            Err(e) => eprintln!(
+                "kanban: warning — failed to add {} -{pred}-> {target}: {e}",
+                req.id
+            ),
+        }
+    }
+    let mut removed = Vec::new();
+    for (pred, target) in &del_edges {
+        match relations.remove_relation(&req.id, target, pred) {
+            Ok(_) => {
+                project_edge(store, &req.id, pred, target, false);
+                removed.push(format!("{pred}:{target}"));
+            }
+            Err(e) => eprintln!(
+                "kanban: warning — failed to remove {} -{pred}-> {target}: {e}",
+                req.id
+            ),
+        }
+    }
+    if !added.is_empty() {
+        updated.push("relationships_added");
+    }
+    if !removed.is_empty() {
+        updated.push("relationships_removed");
+    }
+
     serialize_response(&serde_json::json!({
         "id": req.id,
         "updated": updated,
+        "relationships_added": added,
+        "relationships_removed": removed,
     }))
 }
 
@@ -275,7 +487,7 @@ struct ListRequest {
     board: Option<String>,
     assignee: Option<String>,
     /// CH-4307: post-filter by resolution (terminal states only — completed,
-    /// superseded, wont_do, duplicate, obsolete, merged).
+    /// superseded, wont_do, duplicate, obsolete, merged, refuted).
     #[serde(default)]
     resolution: Option<String>,
     /// CH-4307: post-filter by priority (critical, high, medium, low).
@@ -497,9 +709,15 @@ pub(crate) fn handle_query(
         // Apply top-N limit
         matched.truncate(top);
 
-        // Federated proposal search
+        // Federated proposal search — CH-5454: cap the proposals section to `top`
+        // too (the dev rows are capped at line `matched.truncate(top)`).
         let prop_batches = proposals.search_proposals(search_text).unwrap_or_default();
-        let proposal_table = format_proposal_search_results(&prop_batches);
+        let proposal_table = format_proposal_search_results(&prop_batches, Some(top));
+        let prop_shown = prop_batches
+            .iter()
+            .map(|b| b.num_rows())
+            .sum::<usize>()
+            .min(top);
 
         let mut table = display::format_item_table(&matched);
         if !proposal_table.is_empty() {
@@ -509,7 +727,7 @@ pub(crate) fn handle_query(
 
         return serialize_response(&serde_json::json!({
             "query": search_text,
-            "count": matched.len() + prop_batches.iter().map(|b| b.num_rows()).sum::<usize>(),
+            "count": matched.len() + prop_shown,
             "table": table,
         }));
     }
@@ -523,9 +741,9 @@ pub(crate) fn handle_query(
         filters.assignee.as_deref(),
     );
 
-    // Federated proposal search on NL queries too
+    // Federated proposal search on NL queries too (no --top on this path → uncapped).
     let prop_batches = proposals.search_proposals(&req.query).unwrap_or_default();
-    let proposal_table = format_proposal_search_results(&prop_batches);
+    let proposal_table = format_proposal_search_results(&prop_batches, None);
 
     let mut table = display::format_item_table(&items);
     if !proposal_table.is_empty() {
@@ -541,16 +759,30 @@ pub(crate) fn handle_query(
 }
 
 /// Format proposal RecordBatches as a display table string for query results.
-fn format_proposal_search_results(batches: &[arrow::record_batch::RecordBatch]) -> String {
+/// Render the `[Proposals]` section of a query result. `top` caps the number of
+/// proposal rows shown (CH-5454): `nk query --search X --top N` previously capped
+/// the dev-board rows but printed EVERY matching proposal (a `--top 3` could emit
+/// hundreds of proposal lines). Pass `Some(top)` to apply the same cap; `None`
+/// leaves the section uncapped (the NL-query path, which caps nothing).
+fn format_proposal_search_results(
+    batches: &[arrow::record_batch::RecordBatch],
+    top: Option<usize>,
+) -> String {
     use arrow::array::Array;
     use nusy_graph_review::schema::proposals_col;
 
     if batches.is_empty() {
         return String::new();
     }
+    // 0 means "show none" — an empty section (mirrors truncate(0) on the dev rows).
+    let cap = top.unwrap_or(usize::MAX);
 
     let mut lines = vec!["[Proposals]".to_string()];
+    let mut shown = 0usize;
     for batch in batches {
+        if shown >= cap {
+            break;
+        }
         let ids = batch
             .column(proposals_col::PROPOSAL_ID)
             .as_any()
@@ -572,6 +804,9 @@ fn format_proposal_search_results(batches: &[arrow::record_batch::RecordBatch]) 
             .downcast_ref::<arrow::array::StringArray>()
             .expect("author");
         for i in 0..batch.num_rows() {
+            if shown >= cap {
+                break;
+            }
             lines.push(format!(
                 "  {}  {}  {}  {}",
                 ids.value(i),
@@ -579,7 +814,12 @@ fn format_proposal_search_results(batches: &[arrow::record_batch::RecordBatch]) 
                 statuses.value(i),
                 authors.value(i),
             ));
+            shown += 1;
         }
+    }
+    // If the cap excluded every row, don't emit a lone header.
+    if shown == 0 {
+        return String::new();
     }
     lines.join("\n")
 }
@@ -1227,6 +1467,7 @@ pub(crate) fn handle_hdd_create(
         title: req.title,
         item_type: item_type.as_str().to_string(),
         status: "backlog".to_string(),
+        relationships: Vec::new(),
     })
 }
 
@@ -1307,5 +1548,184 @@ pub(crate) fn handle_templates(payload: &[u8], root: &std::path::Path) -> Result
             })
             .collect();
         serialize_response(&serde_json::json!({ "types": types }))
+    }
+}
+
+#[cfg(test)]
+mod ratify_tests {
+    //! CH-4906: first-class phase ratification through the server handler.
+    use super::*;
+    use nusy_kanban::crud::{CreateItemInput, KanbanStore};
+    use nusy_kanban::item_type::ItemType;
+
+    fn item(store: &mut KanbanStore, ty: ItemType, tags: &[&str]) -> String {
+        store
+            .create_item(&CreateItemInput {
+                title: "r".into(),
+                item_type: ty,
+                priority: None,
+                assignee: None,
+                tags: tags.iter().map(|s| s.to_string()).collect(),
+                related: vec![],
+                depends_on: vec![],
+                body: None,
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn handle_ratify_strips_phase_and_reports_zero_remaining() {
+        let mut store = KanbanStore::new();
+        item(
+            &mut store,
+            ItemType::Expedition,
+            &["v19-phase-q", "pending-ratification"],
+        );
+        item(
+            &mut store,
+            ItemType::Voyage,
+            &["v19-phase-q", "pending-ratification"],
+        );
+
+        let payload =
+            serde_json::to_vec(&serde_json::json!({ "phase_tag": "v19-phase-q" })).unwrap();
+        let resp = handle_ratify(&payload, &mut store).expect("ratify ok");
+        let v: serde_json::Value = serde_json::from_slice(&resp).unwrap();
+
+        assert_eq!(v["remaining_pending"], 0);
+        assert_eq!(v["stripped"].as_array().unwrap().len(), 2);
+        assert_eq!(v["voyages_started"].as_array().unwrap().len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod claim_tests {
+    //! CH-4905: atomic exclusive claim through the server's single-writer move handler.
+    use super::*;
+    use nusy_kanban::crud::{CreateItemInput, KanbanStore};
+    use nusy_kanban::item_type::ItemType;
+
+    fn new_item(store: &mut KanbanStore, title: &str) -> String {
+        store
+            .create_item(&CreateItemInput {
+                title: title.into(),
+                item_type: ItemType::Expedition,
+                priority: None,
+                assignee: None,
+                tags: vec![],
+                related: vec![],
+                depends_on: vec![],
+                body: None,
+            })
+            .expect("create")
+    }
+
+    fn move_payload(id: &str, status: &str, assignee: &str, force: bool) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "id": id, "status": status, "assignee": assignee, "force": force
+        }))
+        .unwrap()
+    }
+
+    fn assignee_of(store: &KanbanStore, id: &str) -> Option<String> {
+        store.status_and_assignee(id).unwrap().1
+    }
+
+    #[test]
+    fn move_claim_sticks_then_blocks_cross_agent_and_force_overrides() {
+        let mut store = KanbanStore::new();
+        let id = new_item(&mut store, "Contested");
+
+        // Mini claims it: move succeeds AND the assignee column sticks (the CH-4905 fix).
+        assert!(handle_move(&move_payload(&id, "in_progress", "Mini", false), &mut store).is_ok());
+        assert_eq!(assignee_of(&store, &id).as_deref(), Some("Mini"));
+
+        // DGX1's claim is rejected with CLAIM_CONFLICT — and the owner is unchanged.
+        let err = handle_move(&move_payload(&id, "in_progress", "DGX1", false), &mut store)
+            .expect_err("cross-agent claim must be rejected");
+        assert!(
+            String::from_utf8_lossy(&err).contains("CLAIM_CONFLICT"),
+            "expected CLAIM_CONFLICT, got {}",
+            String::from_utf8_lossy(&err)
+        );
+        assert_eq!(
+            assignee_of(&store, &id).as_deref(),
+            Some("Mini"),
+            "owner unchanged"
+        );
+
+        // --force is the audited handoff escape hatch.
+        assert!(handle_move(&move_payload(&id, "in_progress", "DGX1", true), &mut store).is_ok());
+        assert_eq!(assignee_of(&store, &id).as_deref(), Some("DGX1"));
+    }
+}
+
+#[cfg(test)]
+mod ch5454_proposal_cap_tests {
+    //! CH-5454: `nk query --search X --top N` must cap the [Proposals] section
+    //! too, not just the dev-board rows.
+    use super::format_proposal_search_results;
+    use arrow::array::{ArrayRef, RecordBatch, StringArray, TimestampMillisecondArray};
+    use nusy_graph_review::schema::proposals_schema;
+    use std::sync::Arc;
+
+    /// Build a proposals RecordBatch with `n` rows (only id/status/author/title
+    /// are read by the formatter; the rest are schema-required fillers).
+    fn proposals_batch(n: usize) -> RecordBatch {
+        let ids: Vec<String> = (0..n).map(|i| format!("PROP-{i}")).collect();
+        let id_refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let filler: Vec<&str> = vec![""; n];
+        let s = |v: &[&str]| Arc::new(StringArray::from(v.to_vec())) as ArrayRef;
+        let ts = || {
+            Arc::new(TimestampMillisecondArray::from(vec![0i64; n]).with_timezone("UTC"))
+                as ArrayRef
+        };
+        let ts_null = || {
+            Arc::new(TimestampMillisecondArray::from(vec![None::<i64>; n]).with_timezone("UTC"))
+                as ArrayRef
+        };
+        RecordBatch::try_new(
+            proposals_schema(),
+            vec![
+                s(&id_refs),         // 0 proposal_id
+                s(&filler),          // 1 source_branch
+                s(&filler),          // 2 target_branch
+                s(&filler),          // 3 namespace
+                s(&filler),          // 4 proposal_type
+                s(&vec!["open"; n]), // 5 status
+                s(&vec!["M5"; n]),   // 6 author
+                s(&filler),          // 7 reviewer
+                s(&filler),          // 8 merged_by
+                s(&id_refs),         // 9 title
+                s(&filler),          // 10 description
+                ts(),                // 11 created_at
+                ts(),                // 12 updated_at
+                ts_null(),           // 13 merged_at
+                s(&filler),          // 14 resolution
+                s(&filler),          // 15 closed_by
+            ],
+        )
+        .unwrap()
+    }
+
+    fn prop_rows(out: &str) -> usize {
+        out.lines()
+            .filter(|l| l.trim_start().starts_with("PROP-"))
+            .count()
+    }
+
+    #[test]
+    fn proposals_section_respects_top_cap() {
+        let batch = proposals_batch(5);
+        // Some(2): the cap the dev rows already get — at most 2 proposal rows + header.
+        let capped = format_proposal_search_results(std::slice::from_ref(&batch), Some(2));
+        assert!(capped.contains("[Proposals]"));
+        assert_eq!(prop_rows(&capped), 2, "cap to 2:\n{capped}");
+        // None: NL-query path, uncapped — all 5 shown.
+        let uncapped = format_proposal_search_results(std::slice::from_ref(&batch), None);
+        assert_eq!(prop_rows(&uncapped), 5, "uncapped:\n{uncapped}");
+        // Some(0): show none → empty section, not a lone header.
+        let zero = format_proposal_search_results(std::slice::from_ref(&batch), Some(0));
+        assert!(zero.is_empty(), "cap 0 → empty, got:\n{zero}");
     }
 }

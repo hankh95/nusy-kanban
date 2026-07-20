@@ -391,7 +391,7 @@ impl TrainingQueue {
                 .collect();
 
             // Sort by priority rank descending (critical first)
-            queued.sort_by(|a, b| b.payload.priority_rank().cmp(&a.payload.priority_rank()));
+            queued.sort_by_key(|x| std::cmp::Reverse(x.payload.priority_rank()));
 
             queued.iter().map(|j| j.id.clone()).collect()
         };

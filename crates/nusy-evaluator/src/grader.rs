@@ -117,7 +117,13 @@ impl Grader {
 
     /// Grade one (CQ, response, supporting-triple-count) tuple.
     pub fn grade(&self, cq: &CqSpec, response: &str, supporting_triples: usize) -> GradeReport {
-        let response_trim = response.trim();
+        // CH-5376: grade only the VISIBLE answer, never the model's private
+        // `<think>…</think>` reasoning. Reasoning models (Qwen3) leak the answer
+        // they're *considering* into that block; keyword-matching it counts a
+        // leaked keyword as a substantive answer — a misleading-green (EX-5367:
+        // af1 graded `pass` on an incoherent trailed-off answer whose only
+        // keyword match was inside `<think>`).
+        let response_trim = strip_reasoning(response).trim();
 
         // Empty response = error.
         if response_trim.is_empty() {
@@ -229,6 +235,24 @@ fn persona_leak_re() -> &'static Regex {
         let pattern = format!("(?i){}", alternations.join("|"));
         Regex::new(&pattern).expect("persona-leak regex compiles")
     })
+}
+
+/// CH-5376: return only the VISIBLE answer — the text after the model's private
+/// `<think>…</think>` reasoning block — for grading. Reasoning models (Qwen3)
+/// emit `<think>internal reasoning</think>\n\nanswer`; that reasoning is not the
+/// graded answer and frequently *leaks* candidate keywords. Rules:
+/// - text after the **last** `</think>` is the answer (defensive against >1 block);
+/// - a `<think>` opened but never closed (truncated reasoning, no answer emitted)
+///   yields an **empty** answer — the model never actually answered;
+/// - no think tags ⇒ the response is the answer, unchanged.
+fn strip_reasoning(response: &str) -> &str {
+    if let Some(idx) = response.rfind("</think>") {
+        return &response[idx + "</think>".len()..];
+    }
+    if response.contains("<think>") {
+        return "";
+    }
+    response
 }
 
 fn is_refusal(response: &str) -> bool {
@@ -360,6 +384,56 @@ mod tests {
         ] {
             assert!(!is_refusal(r), "false-positive refusal on: {r:?}");
         }
+    }
+
+    // ── CH-5376: grade the visible answer, never the `<think>` block ───────
+
+    #[test]
+    fn ch5376_keyword_only_in_think_block_is_not_a_pass() {
+        // EX-5367 af1: the leaked keyword sits inside the model's private
+        // reasoning; the visible answer trailed off with no keyword. Must NOT pass.
+        let g = grader_no_trace();
+        let spec = cq("af1", Expect::Answer, &["apixaban"]);
+        let resp = "<think>The first-line is an oral anticoagulant like apixaban.</think>\n\nThe first-line treatment mentioned in the provided facts is.";
+        let r = g.grade(&spec, resp, 1);
+        assert!(
+            r.matched_keywords.is_empty(),
+            "must not match keywords from the <think> block: {:?}",
+            r.matched_keywords
+        );
+        assert_ne!(
+            r.grade,
+            Grade::Pass,
+            "a keyword leaked only into <think> must not pass"
+        );
+    }
+
+    #[test]
+    fn ch5376_keyword_in_visible_answer_still_passes() {
+        let g = grader_no_trace();
+        let spec = cq("af7", Expect::Answer, &["apixaban"]);
+        let resp = "<think>reasoning about the drug class</think>\n\nThe preferred direct oral anticoagulant is apixaban.";
+        let r = g.grade(&spec, resp, 1);
+        assert_eq!(
+            r.grade,
+            Grade::Pass,
+            "a keyword in the VISIBLE answer must still pass"
+        );
+        assert!(r.matched_keywords.contains(&"apixaban".to_string()));
+    }
+
+    #[test]
+    fn ch5376_unclosed_think_yields_empty_answer() {
+        // Truncated reasoning, no answer emitted ⇒ no visible answer ⇒ Error.
+        let g = grader_no_trace();
+        let spec = cq("af2", Expect::Answer, &["apixaban"]);
+        let resp = "<think>started reasoning about apixaban but never finished";
+        let r = g.grade(&spec, resp, 1);
+        assert_eq!(
+            r.grade,
+            Grade::Error,
+            "an unclosed <think> (no visible answer) must grade Error, not Pass"
+        );
     }
 
     // ── Persona-leak regex (A10) ───────────────────────────────────────────

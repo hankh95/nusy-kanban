@@ -45,6 +45,7 @@ pub mod persistence;
 pub mod pr_cli;
 pub mod query;
 pub mod regression_cli;
+pub mod relation_vocab;
 pub mod relations;
 pub mod schema;
 #[cfg(feature = "pr")]

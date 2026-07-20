@@ -48,6 +48,10 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+// CLI command enum: the Training subcommand carries a large optional-arg spec. Boxing clap
+// `#[arg]` fields breaks the derive; a command enum built once per invocation has no size
+// pressure, so allow the variant-size difference.
+#[allow(clippy::large_enum_variant)]
 enum Commands {
     /// Create a new item
     Create {
@@ -76,6 +80,13 @@ enum Commands {
         /// Use a built-in body template (expedition, chore, voyage)
         #[arg(long)]
         template: Option<String>,
+        /// Typed relationship, repeatable: --relate <predicate>:<TARGET-ID>
+        ///
+        /// e.g. --relate implements:VY-1234 --relate validates:H-5924
+        /// Predicates: related, dependsOn, blocks, parent, implements, spawns,
+        /// tests, validates, measures. Domain/range are enforced.
+        #[arg(long = "relate", value_name = "PREDICATE:TARGET")]
+        relate: Vec<String>,
         /// Push after creating (atomic create + commit + push)
         #[arg(long)]
         push: bool,
@@ -93,12 +104,20 @@ enum Commands {
         /// Force move (bypass WIP limits)
         #[arg(long)]
         force: bool,
-        /// Resolution reason (completed, superseded, wont_do, duplicate, obsolete, merged)
+        /// Resolution reason (completed, superseded, wont_do, duplicate, obsolete, merged, refuted)
         #[arg(long)]
         resolution: Option<String>,
         /// Provenance URI for closure (e.g., PROP-2025, PR URL)
         #[arg(long)]
         closed_by: Option<String>,
+    },
+
+    /// Ratify a phase (CH-4906): strip `pending-ratification` from every item carrying the phase
+    /// tag, sprint-start its voyages, and verify none remain — one atomic call (no shell loop).
+    Ratify {
+        /// The phase tag to ratify (e.g., v19-phase-e)
+        #[arg(long)]
+        phase: String,
     },
 
     /// Update fields on an existing item
@@ -129,6 +148,15 @@ enum Commands {
         /// New depends-on items (comma-separated, replaces existing)
         #[arg(long)]
         depends_on: Option<String>,
+        /// ADD a typed relationship, repeatable: --relate <predicate>:<TARGET-ID>
+        ///
+        /// Unlike --related/--depends-on (which REPLACE), --relate is ADDITIVE:
+        /// adding an edge never silently deletes the others.
+        #[arg(long = "relate", value_name = "PREDICATE:TARGET")]
+        relate: Vec<String>,
+        /// REMOVE a typed relationship, repeatable: --unrelate <predicate>:<TARGET-ID>
+        #[arg(long = "unrelate", value_name = "PREDICATE:TARGET")]
+        unrelate: Vec<String>,
     },
 
     /// Add a comment to an item
@@ -153,7 +181,7 @@ enum Commands {
         /// Filter by assignee
         #[arg(long)]
         assignee: Option<String>,
-        /// Filter by resolution (completed, superseded, wont_do, duplicate, obsolete, merged)
+        /// Filter by resolution (completed, superseded, wont_do, duplicate, obsolete, merged, refuted)
         #[arg(long)]
         resolution: Option<String>,
         /// Filter by priority (critical, high, medium, low)
@@ -927,6 +955,9 @@ fn run_materialize_command(
             continue;
         };
 
+        // i indexes several parallel arrays (kinds/fps/body_strings); enumerate over one
+        // doesn't fit, so the range loop is the clear form here.
+        #[allow(clippy::needless_range_loop)]
         for i in 0..batch.num_rows() {
             if kinds.is_null(i) {
                 continue;
@@ -1417,6 +1448,11 @@ fn run_test_command(
 }
 
 #[derive(Subcommand)]
+// The `Queue` variant carries the full training-spec as many optional CLI args (clap
+// `#[arg]` flags). Boxing each `Option<String>` (clippy's suggestion) breaks the clap
+// derive ergonomics; a one-off command enum constructed once per invocation has no
+// size-pressure concern, so allow the size difference here.
+#[allow(clippy::large_enum_variant)]
 enum TrainingCommands {
     /// Queue a training job
     Queue {
@@ -1784,6 +1820,7 @@ fn run(root: PathBuf, command: Commands) -> Result<(), Box<dyn std::error::Error
             body_file,
             body_stdin,
             template,
+            relate,
             push,
         } => {
             let it = ItemType::from_str_loose(&item_type)
@@ -1812,19 +1849,46 @@ fn run(root: PathBuf, command: Commands) -> Result<(), Box<dyn std::error::Error
                 None
             };
 
+            // CH-6109: typed relationships at create time. Validate EVERY edge before
+            // creating anything — a half-related item is worse than a refused one.
+            let edges = parse_relate_specs(&relate, it.as_str(), None)?;
+
+            // related/dependsOn also project into the flat columns, so roadmap /
+            // critical-path / worklist / show keep reading exactly what they read today.
+            let mut related_flat: Vec<String> = Vec::new();
+            let mut depends_flat: Vec<String> = Vec::new();
+            for (pred, target) in &edges {
+                match nusy_kanban::relation_vocab::flat_column_for(pred) {
+                    Some("related") => related_flat.push(target.clone()),
+                    Some("depends_on") => depends_flat.push(target.clone()),
+                    _ => {}
+                }
+            }
+
             let id = store.create_item(&CreateItemInput {
                 title: title.clone(),
                 item_type: it,
                 priority,
                 assignee: assign,
                 tags: tag_list,
-                related: vec![],
-                depends_on: vec![],
+                related: related_flat,
+                depends_on: depends_flat,
                 body: body_content,
             })?;
 
+            if !edges.is_empty() {
+                let mut rel_store = persist::load_relations(&root)?;
+                for (pred, target) in &edges {
+                    rel_store.add_relation(&id, target, pred)?;
+                }
+                persist::save_relations(&root, &rel_store)?;
+            }
+
             persist::save_store(&root, &store)?;
             println!("Created {id}: {title}");
+            for (pred, target) in &edges {
+                println!("  {id} -{pred}-> {target}");
+            }
 
             if push {
                 // Graph-native commit (queryable audit trail via nusy-arrow-git)
@@ -1938,6 +2002,14 @@ fn run(root: PathBuf, command: Commands) -> Result<(), Box<dyn std::error::Error
                 state_machine::check_wip_limit(board, &status, count, item_type_str)?;
             }
 
+            // Atomic exclusive claim (CH-4905): reject a cross-agent claim on an already
+            // in_progress item (without --force) — same guard as the server's single-writer path.
+            if status == "in_progress"
+                && let Some(assignee) = &assign
+            {
+                store.check_exclusive_claim(&id, assignee, force)?;
+            }
+
             let old = store.update_status(&id, &status, None, force, None)?;
 
             // Handle assignee update
@@ -1968,6 +2040,29 @@ fn run(root: PathBuf, command: Commands) -> Result<(), Box<dyn std::error::Error
             println!("{msg}");
         }
 
+        Commands::Ratify { phase } => {
+            let report = store.ratify_phase(&phase)?;
+            if report.remaining_pending != 0 {
+                return Err(format!(
+                    "ratify {phase}: {} item(s) still pending-ratification after strip (partial \
+                     ratification — NOT sprint-started)",
+                    report.remaining_pending
+                )
+                .into());
+            }
+            persist::save_store(&root, &store)?;
+            println!(
+                "Ratified {phase}: stripped pending-ratification from {} item(s); started {} voyage(s){}",
+                report.stripped.len(),
+                report.voyages_started.len(),
+                if report.voyages_started.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", report.voyages_started.join(", "))
+                }
+            );
+        }
+
         Commands::Update {
             id,
             title,
@@ -1978,6 +2073,8 @@ fn run(root: PathBuf, command: Commands) -> Result<(), Box<dyn std::error::Error
             body_file,
             related,
             depends_on,
+            relate,
+            unrelate,
         } => {
             // Verify item exists
             let _ = store.get_item(&id)?;
@@ -2021,9 +2118,42 @@ fn run(root: PathBuf, command: Commands) -> Result<(), Box<dyn std::error::Error
                 updated.push("depends_on");
             }
 
+            // CH-6109: typed relationships on EDIT — additive/subtractive, unlike
+            // --related/--depends-on which replace. Validated before any mutation.
+            if !relate.is_empty() || !unrelate.is_empty() {
+                let source_type = nusy_kanban::relation_vocab::type_from_id(&id).unwrap_or("");
+                let add = parse_relate_specs(&relate, source_type, Some(&id))?;
+                let del = parse_relate_specs(&unrelate, source_type, Some(&id))?;
+
+                let mut rel_store = persist::load_relations(&root)?;
+                for (pred, target) in &add {
+                    rel_store.add_relation(&id, target, pred)?;
+                    // Keep the flat projection in step, or a related/dependsOn edge added
+                    // on EDIT is invisible to roadmap / critical-path / worklist / show.
+                    if let Some(col) = flat_col_for(pred) {
+                        store.add_to_list_field(&id, col, target)?;
+                    }
+                    println!("  + {id} -{pred}-> {target}");
+                }
+                for (pred, target) in &del {
+                    rel_store.remove_relation(&id, target, pred)?;
+                    if let Some(col) = flat_col_for(pred) {
+                        store.remove_from_list_field(&id, col, target)?;
+                    }
+                    println!("  - {id} -{pred}-> {target}");
+                }
+                persist::save_relations(&root, &rel_store)?;
+                if !add.is_empty() {
+                    updated.push("relationships_added");
+                }
+                if !del.is_empty() {
+                    updated.push("relationships_removed");
+                }
+            }
+
             if updated.is_empty() {
                 println!(
-                    "No fields specified to update. Use --title, --priority, --assign, --tags, --body, --body-file, --related, or --depends-on."
+                    "No fields specified to update. Use --title, --priority, --assign, --tags, --body, --body-file, --related, --depends-on, --relate, or --unrelate."
                 );
             } else {
                 persist::save_store(&root, &store)?;
@@ -3955,6 +4085,13 @@ fn run_recheck_client(
             CheckType::Fmt => {
                 fmt_clean = check.passed;
             }
+            // Regression gate (CH-5069): no dedicated count field — captured in the
+            // overall `suite.passed` → status (below) and the forwarded `summary`
+            // (which CiResultView::format_checks surfaces as the Regression line).
+            CheckType::Regression => {}
+            // Provenance gate (EX-5195): same — no count field, captured in
+            // `suite.passed` and surfaced per-line by CiResultView::format_checks.
+            CheckType::Provenance => {}
         }
     }
 
@@ -4030,6 +4167,44 @@ fn parse_nats_tags(tags: &Option<String>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The flat column a predicate projects onto, if any (CH-6109).
+fn flat_col_for(predicate: &str) -> Option<usize> {
+    use nusy_kanban::schema::items_col;
+    match nusy_kanban::relation_vocab::flat_column_for(predicate) {
+        Some("related") => Some(items_col::RELATED),
+        Some("depends_on") => Some(items_col::DEPENDS_ON),
+        _ => None,
+    }
+}
+
+/// Parse and validate `predicate:TARGET` specs for local mode (CH-6109).
+///
+/// Mirrors the server-side check so `--relate` behaves IDENTICALLY on both paths — a flag
+/// that works over NATS but is silently ignored locally is worse than no flag.
+fn parse_relate_specs(
+    specs: &[String],
+    source_type: &str,
+    source_id: Option<&str>,
+) -> std::result::Result<Vec<(String, String)>, String> {
+    use nusy_kanban::relation_vocab as vocab;
+    let mut out = Vec::new();
+    for spec in specs {
+        let (pred, target) = vocab::parse_spec(spec).ok_or_else(|| {
+            format!("malformed --relate '{spec}' — expected <predicate>:<TARGET-ID>, e.g. implements:VY-1234")
+        })?;
+        let p = vocab::validate_edge(
+            pred,
+            source_id.unwrap_or("<new>"),
+            source_type,
+            target,
+            vocab::type_from_id(target),
+        )
+        .map_err(|e| e.to_string())?;
+        out.push((p.name.to_string(), target.to_string()));
+    }
+    Ok(out)
+}
+
 /// Convert a CLI command to a NATS subject + JSON payload.
 #[cfg(feature = "client")]
 fn command_to_nats(command: &Commands) -> (String, serde_json::Value) {
@@ -4044,6 +4219,7 @@ fn command_to_nats(command: &Commands) -> (String, serde_json::Value) {
             body_file,
             body_stdin: _,
             template,
+            relate,
             push: _,
         } => {
             let tag_list: Vec<String> = tags
@@ -4082,6 +4258,8 @@ fn command_to_nats(command: &Commands) -> (String, serde_json::Value) {
                     "assignee": assign,
                     "tags": tag_list,
                     "body": body_content,
+                    // CH-6109: typed relationships at CREATE time.
+                    "relate": relate,
                 }),
             )
         }
@@ -4102,6 +4280,10 @@ fn command_to_nats(command: &Commands) -> (String, serde_json::Value) {
                 "resolution": resolution,
                 "closed_by": closed_by,
             }),
+        ),
+        Commands::Ratify { phase } => (
+            "ratify".to_string(),
+            serde_json::json!({ "phase_tag": phase }),
         ),
         Commands::List {
             status,
@@ -4312,8 +4494,18 @@ fn command_to_nats(command: &Commands) -> (String, serde_json::Value) {
             body_file,
             related,
             depends_on,
+            relate,
+            unrelate,
         } => {
             let mut payload = serde_json::json!({ "id": id });
+            // CH-6109: typed relationships on EDIT. Additive/subtractive, unlike the
+            // replace-semantics of --related/--depends-on.
+            if !relate.is_empty() {
+                payload["relate"] = serde_json::json!(relate);
+            }
+            if !unrelate.is_empty() {
+                payload["unrelate"] = serde_json::json!(unrelate);
+            }
             if let Some(t) = title {
                 payload["title"] = serde_json::json!(t);
             }

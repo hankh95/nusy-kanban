@@ -3,12 +3,11 @@
 //! Tests the pipeline: directory walk → parse → edges → embeddings → metrics → Arrow batches.
 
 use nusy_codegraph::{
-    CodeEdgePredicate, CodeNodeKind, HashEmbeddingProvider, attach_embeddings, callers_of,
+    CodeEdgePredicate, CodeNodeKind, HashEmbeddingProvider, attach_embeddings,
     compute_codebase_metrics, embed_nodes, enrich_with_coverage, high_complexity_nodes,
     ingest_directory, largest_nodes, low_coverage_nodes, nodes_in_file, parse_coverage_json,
     semantic_search,
 };
-use std::collections::HashMap;
 
 /// Build a realistic multi-file Python project for testing.
 fn create_test_project() -> tempfile::TempDir {

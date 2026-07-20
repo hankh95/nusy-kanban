@@ -1,5 +1,6 @@
 //! Server state — all stores bundled into one struct.
 
+use crate::health::HealthGate;
 use nusy_kanban::crud::KanbanStore;
 use nusy_kanban::relations::RelationsStore;
 use std::path::PathBuf;
@@ -17,4 +18,7 @@ pub struct ServerState {
     #[cfg(feature = "pr")]
     pub ci_results: nusy_graph_review::CiResultStore,
     pub data_dir: PathBuf,
+    /// Write-durability gate (CH-6056). Refuses mutations when the store is not
+    /// accepting durable writes, instead of acking writes a restart would lose.
+    pub health: HealthGate,
 }

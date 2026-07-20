@@ -3,6 +3,7 @@ name = "noesis-ship"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
 # CH-4702: this Rust crate is NOT github.com/hankh95/noesis-ship (the Python/Node
 # platform of the same name). Source lives in the private NuSy monorepo; public
 # home is nusy.dev until the V19 public repos exist.

@@ -7,10 +7,7 @@ use crate::namespace::Namespace;
 use crate::schema::{col, triples_schema};
 use crate::y_layer::YLayer;
 
-use arrow::array::{
-    Array, BooleanArray, Float64Array, RecordBatch, StringArray, TimestampMillisecondArray,
-    UInt8Array,
-};
+use arrow::array::{Array, BooleanArray, RecordBatch, StringArray, UInt8Array};
 use arrow::compute;
 use arrow::datatypes::SchemaRef;
 use std::collections::HashMap;
@@ -73,6 +70,15 @@ pub struct QuerySpec {
     /// query. The handle form is `canonical_url|version`
     /// (see [`KnowledgeArtifact::named_graph`](crate::KnowledgeArtifact::named_graph)).
     pub graph: Option<String>,
+    /// Provenness axis (CH-4687): certifiability-class filter
+    /// (`"symbolic"` | `"neural"` | `"co-voted"`, EX-3570). Rows with a NULL
+    /// class never match.
+    pub certifiability_class: Option<String>,
+    /// Provenness axis (CH-4687): epistemic-status filter
+    /// (`"asserted"` | `"derived"` | `"believed"` | `"retracted"`, EX-4682).
+    /// A NULL status reads as `asserted`, so filtering for `"asserted"` matches
+    /// both NULL and the literal value; other statuses match exactly.
+    pub epistemic_status: Option<String>,
     pub include_deleted: bool,
 }
 
@@ -129,77 +135,13 @@ impl ArrowGraphStore {
         namespace: Namespace,
         y_layer: YLayer,
     ) -> Result<Vec<String>> {
-        let n = triples.len();
-        if n == 0 {
+        if triples.is_empty() {
             return Ok(vec![]);
         }
 
-        let now_ms = chrono::Utc::now().timestamp_millis();
-        let ns_str = namespace.as_str();
-        let layer_val = y_layer.as_u8();
-
-        let ids: Vec<String> = (0..n).map(|_| uuid::Uuid::new_v4().to_string()).collect();
-
-        let subjects: Vec<&str> = triples.iter().map(|t| t.subject.as_str()).collect();
-        let predicates: Vec<&str> = triples.iter().map(|t| t.predicate.as_str()).collect();
-        let objects: Vec<&str> = triples.iter().map(|t| t.object.as_str()).collect();
-        let graphs: Vec<Option<&str>> = triples.iter().map(|t| t.graph.as_deref()).collect();
-        let ns_vals: Vec<&str> = vec![ns_str; n];
-        let layer_vals: Vec<u8> = vec![layer_val; n];
-        let confidences: Vec<Option<f64>> = triples.iter().map(|t| t.confidence).collect();
-        let source_docs: Vec<Option<&str>> = triples
-            .iter()
-            .map(|t| t.source_document.as_deref())
-            .collect();
-        let source_chunks: Vec<Option<&str>> = triples
-            .iter()
-            .map(|t| t.source_chunk_id.as_deref())
-            .collect();
-        let extracted: Vec<Option<&str>> =
-            triples.iter().map(|t| t.extracted_by.as_deref()).collect();
-        let caused_by: Vec<Option<&str>> = triples.iter().map(|t| t.caused_by.as_deref()).collect();
-        let derived_from: Vec<Option<&str>> =
-            triples.iter().map(|t| t.derived_from.as_deref()).collect();
-        let consolidated_at: Vec<Option<i64>> = triples.iter().map(|t| t.consolidated_at).collect();
-        let timestamps: Vec<i64> = vec![now_ms; n];
-        let deleted: Vec<bool> = vec![false; n];
-        let certifiability_class: Vec<Option<&str>> = triples
-            .iter()
-            .map(|t| t.certifiability_class.as_deref())
-            .collect();
-        // EX-4681: XSD datatype sidecar (None = plain string literal).
-        let object_datatype: Vec<Option<&str>> = triples
-            .iter()
-            .map(|t| t.object_datatype.as_deref())
-            .collect();
-        let id_strs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
-
-        let batch = RecordBatch::try_new(
-            self.schema.clone(),
-            vec![
-                Arc::new(StringArray::from(id_strs)),
-                Arc::new(StringArray::from(subjects)),
-                Arc::new(StringArray::from(predicates)),
-                Arc::new(StringArray::from(objects)),
-                Arc::new(StringArray::from(graphs)),
-                Arc::new(StringArray::from(ns_vals)),
-                Arc::new(UInt8Array::from(layer_vals)),
-                Arc::new(Float64Array::from(confidences)),
-                Arc::new(StringArray::from(source_docs)),
-                Arc::new(StringArray::from(source_chunks)),
-                Arc::new(StringArray::from(extracted)),
-                Arc::new(TimestampMillisecondArray::from(timestamps).with_timezone("UTC")),
-                Arc::new(StringArray::from(caused_by)),
-                Arc::new(StringArray::from(derived_from)),
-                Arc::new(TimestampMillisecondArray::from(consolidated_at).with_timezone("UTC")),
-                Arc::new(BooleanArray::from(deleted)),
-                Arc::new(StringArray::from(certifiability_class)),
-                Arc::new(StringArray::from(object_datatype)),
-                // EX-4682: epistemic_status — null (= asserted) at construction; set to
-                // derived/believed/retracted only by governed write-back.
-                Arc::new(StringArray::from(vec![None::<&str>; triples.len()])),
-            ],
-        )?;
+        // CH-4712: ALL triples-batch construction goes through the shared builder —
+        // schema-column additions are made there, never at call sites.
+        let (ids, batch) = crate::triples_batch::triples_record_batch(triples, namespace, y_layer)?;
 
         self.partitions.get_mut(&namespace).unwrap().push(batch);
 
@@ -473,6 +415,33 @@ impl ArrowGraphStore {
             mask = compute::and(&mask, &eq)?;
         }
 
+        // Provenness axis (CH-4687): certifiability class — exact match; NULL never matches.
+        if let Some(ref class) = spec.certifiability_class {
+            let c = batch
+                .column(col::CERTIFIABILITY_CLASS)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .expect("certifiability_class column must be StringArray");
+            let eq = string_eq_scalar(c, class);
+            mask = compute::and(&mask, &eq)?;
+        }
+
+        // Provenness axis (CH-4687): epistemic status — NULL reads as `asserted`
+        // (EX-4682), so the "asserted" filter matches NULL rows too.
+        if let Some(ref status) = spec.epistemic_status {
+            let c = batch
+                .column(col::EPISTEMIC_STATUS)
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .expect("epistemic_status column must be StringArray");
+            let eq = if status == "asserted" {
+                string_eq_or_null_scalar(c, status)
+            } else {
+                string_eq_scalar(c, status)
+            };
+            mask = compute::and(&mask, &eq)?;
+        }
+
         let filtered = compute::filter_record_batch(batch, &mask)?;
         Ok(filtered)
     }
@@ -496,6 +465,15 @@ fn u8_eq_scalar(array: &UInt8Array, value: u8) -> BooleanArray {
     BooleanArray::from(bools)
 }
 
+/// Scalar string equality where NULL also matches — for columns whose NULL reads
+/// as a default value (e.g. `epistemic_status` NULL = `asserted`, EX-4682).
+fn string_eq_or_null_scalar(array: &StringArray, value: &str) -> BooleanArray {
+    let bools: Vec<bool> = (0..array.len())
+        .map(|i| array.is_null(i) || array.value(i) == value)
+        .collect();
+    BooleanArray::from(bools)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -505,16 +483,9 @@ mod tests {
             subject: subj.to_string(),
             predicate: pred.to_string(),
             object: obj.to_string(),
-            graph: None,
             confidence: Some(0.9),
-            source_document: None,
-            source_chunk_id: None,
             extracted_by: Some("test".to_string()),
-            caused_by: None,
-            derived_from: None,
-            consolidated_at: None,
-            certifiability_class: None,
-            object_datatype: None,
+            ..Default::default()
         }
     }
 
@@ -595,6 +566,106 @@ mod tests {
             .downcast_ref::<StringArray>()
             .unwrap();
         assert_eq!(subj.value(0), "s_in");
+    }
+
+    #[test]
+    fn test_certifiability_class_filter() {
+        let mut store = ArrowGraphStore::new();
+        let mut symbolic = sample_triple("rule", "isA", "fact");
+        symbolic.certifiability_class = Some("symbolic".to_string());
+        let mut neural = sample_triple("guess", "isA", "hunch");
+        neural.certifiability_class = Some("neural".to_string());
+        // Untagged row: NULL class must never match a class filter.
+        let untagged = sample_triple("plain", "isA", "row");
+        store
+            .add_batch(
+                &[symbolic, neural, untagged],
+                Namespace::World,
+                YLayer::Semantic,
+            )
+            .unwrap();
+
+        let hits = store
+            .query(&QuerySpec {
+                certifiability_class: Some("symbolic".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        let rows: usize = hits.iter().map(|b| b.num_rows()).sum();
+        assert_eq!(rows, 1);
+        let subjects = hits[0]
+            .column(col::SUBJECT)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        assert_eq!(subjects.value(0), "rule");
+    }
+
+    #[test]
+    fn test_epistemic_status_filter_null_reads_as_asserted() {
+        let mut store = ArrowGraphStore::new();
+        let ids = store
+            .add_batch(
+                &[
+                    sample_triple("a", "p", "b"), // stays NULL (= asserted)
+                    sample_triple("c", "p", "d"), // promoted to derived below
+                ],
+                Namespace::World,
+                YLayer::Semantic,
+            )
+            .unwrap();
+        // Promote the second row through the governed path, then write it back.
+        let batch = store.get_namespace_batches(Namespace::World)[0].clone();
+        let promoted = crate::epistemic::promote_derived_fact(
+            &batch,
+            &ids[1],
+            crate::epistemic::EpistemicStatus::Derived,
+            &crate::epistemic::Provenance {
+                derived_from: Some(ids[0].clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        store.set_namespace_batches(Namespace::World, vec![promoted]);
+
+        // "asserted" matches the NULL row only.
+        let asserted = store
+            .query(&QuerySpec {
+                epistemic_status: Some("asserted".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(asserted.iter().map(|b| b.num_rows()).sum::<usize>(), 1);
+        let subjects = asserted[0]
+            .column(col::SUBJECT)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        assert_eq!(subjects.value(0), "a");
+
+        // "derived" matches the promoted row exactly.
+        let derived = store
+            .query(&QuerySpec {
+                epistemic_status: Some("derived".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(derived.iter().map(|b| b.num_rows()).sum::<usize>(), 1);
+        let subjects = derived[0]
+            .column(col::SUBJECT)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        assert_eq!(subjects.value(0), "c");
+
+        // Unknown status matches nothing rather than erroring.
+        let none = store
+            .query(&QuerySpec {
+                epistemic_status: Some("believed".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(none.iter().map(|b| b.num_rows()).sum::<usize>(), 0);
     }
 
     #[test]
@@ -719,8 +790,6 @@ mod tests {
             subject: "s0".to_string(),
             predicate: "p".to_string(),
             object: "o0".to_string(),
-            caused_by: None,
-            derived_from: None,
             ..sample_triple("s0", "p", "o0")
         };
         let id0 = store
@@ -732,7 +801,6 @@ mod tests {
             predicate: "p".to_string(),
             object: "o1".to_string(),
             caused_by: Some(id0.clone()),
-            derived_from: None,
             ..sample_triple("s1", "p", "o1")
         };
         let id1 = store
@@ -744,7 +812,6 @@ mod tests {
             predicate: "p".to_string(),
             object: "o2".to_string(),
             caused_by: Some(id1.clone()),
-            derived_from: None,
             ..sample_triple("s2", "p", "o2")
         };
         let id2 = store
@@ -770,8 +837,6 @@ mod tests {
             subject: "base".to_string(),
             predicate: "p".to_string(),
             object: "original".to_string(),
-            caused_by: None,
-            derived_from: None,
             ..sample_triple("base", "p", "original")
         };
         let id0 = store
@@ -782,7 +847,6 @@ mod tests {
             subject: "derived".to_string(),
             predicate: "p".to_string(),
             object: "derived_val".to_string(),
-            caused_by: None,
             derived_from: Some(id0.clone()),
             ..sample_triple("derived", "p", "derived_val")
         };

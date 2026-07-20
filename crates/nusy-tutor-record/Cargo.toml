@@ -3,6 +3,7 @@ name = "nusy-tutor-record"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
 repository.workspace = true
 description = "Canonical schema + validator for V16 Customer's Plate (5-layer tutor record)"
 

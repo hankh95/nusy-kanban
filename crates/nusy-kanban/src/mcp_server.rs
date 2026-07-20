@@ -493,7 +493,7 @@ fn tool_schemas() -> Vec<ToolDef> {
                     },
                     "resolution": {
                         "type": "string",
-                        "enum": ["completed", "wont_do", "superseded", "duplicate", "obsolete", "merged"],
+                        "enum": ["completed", "wont_do", "superseded", "duplicate", "obsolete", "merged", "refuted"],
                         "description": "Resolution (required when moving to terminal states)"
                     },
                     "closed_by": {

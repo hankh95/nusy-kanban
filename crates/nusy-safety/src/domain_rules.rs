@@ -21,9 +21,39 @@
 //!     .add_triple("Y", "mechanism", "enzyme_inhibition",
 //!         ChunkRef { chunk_id: "c3".into(), document: "pharmacology.md".into(),
 //!                    paragraph: "MOA".into(), y_layer: "y1".into() })
+//!     .add_triple("Y", "trial_outcome", "superior",
+//!         ChunkRef { chunk_id: "c4".into(), document: "rct.md".into(),
+//!                    paragraph: "Primary endpoint".into(), y_layer: "y1".into() })
 //!     .build().unwrap();
+//!
+//! // Four triples → confidence 1.0 (0.25 each), clearing `medical`'s 0.8 floor, its
+//! // 3-triple minimum and its 2-chunk minimum. Evidence is sufficient.
+//! //
+//! // It is STILL not approved: the built-in `medical` rule sets
+//! // `requires_human_review: true`, so a well-evidenced medical conclusion is routed to a
+//! // human rather than auto-approved. Clearing the evidence bar is necessary, not
+//! // sufficient — that separation is the point of a per-domain rule.
 //! let verdict = store.evaluate(&trail, "medical");
+//! assert!(matches!(verdict, DomainVerdict::RequiresHumanReview));
+//!
+//! // The same trail in a domain WITHOUT the review flag (`educational`) approves on
+//! // evidence alone.
+//! let verdict = store.evaluate(&trail, "educational");
 //! assert!(matches!(verdict, DomainVerdict::Approved));
+//!
+//! // And a thin trail fails the medical evidence bar outright — 2 triples is
+//! // confidence 0.5, under the 0.8 floor.
+//! let thin = JustificationBuilder::for_query("What is the treatment for X?")
+//!     .set_conclusion("Treatment is Y")
+//!     .add_triple("X", "treated_by", "Y",
+//!         ChunkRef { chunk_id: "c1".into(), document: "textbook.md".into(),
+//!                    paragraph: "Ch3".into(), y_layer: "y0".into() })
+//!     .add_triple("Y", "evidence_level", "weak",
+//!         ChunkRef { chunk_id: "c2".into(), document: "case-report.md".into(),
+//!                    paragraph: "Discussion".into(), y_layer: "y1".into() })
+//!     .build().unwrap();
+//! assert!(matches!(store.evaluate(&thin, "medical"),
+//!                  DomainVerdict::InsufficientEvidence { .. }));
 //! ```
 
 use std::collections::{HashMap, HashSet};

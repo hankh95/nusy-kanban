@@ -121,8 +121,17 @@ impl QueryIntent {
             "difference between",
             "types of",
         ];
-        for starter in &edu_starters {
-            if lower.starts_with(starter) {
+        // EX-5267: check educational starters at the start of the whole query AND
+        // at the start of each comma-separated clause, so a leading preamble does
+        // not defeat the classification — "According to the JNC8 guidelines, what
+        // is the first-line drug for hypertension?" is the same educational "what
+        // is X" question as the un-prefixed form. This is phrasing-invariance, not
+        // a loosening: `has_advice_signals` is checked first in `classify` and
+        // overrides, so a genuine advice query is unaffected; and the match is
+        // still anchored to a clause start (not an arbitrary substring).
+        let clause_heads = std::iter::once(lower).chain(lower.split(',').map(str::trim_start));
+        for head in clause_heads {
+            if edu_starters.iter().any(|starter| head.starts_with(starter)) {
                 return true;
             }
         }
@@ -147,6 +156,12 @@ impl QueryIntent {
             "summarize",
             "outline",
             "list",
+            // EX-5267: definitional imperatives — same class as list/outline.
+            // Safe: `has_advice_signals` runs first in `classify` and overrides,
+            // so "name the drug to treat MY condition" still resolves to Advice.
+            "name",
+            "state",
+            "identify",
         ];
         tokens.iter().any(|t| edu_verbs.contains(t))
     }
@@ -163,6 +178,48 @@ mod tests {
         assert_eq!(
             QueryIntent::classify("What is a contract?"),
             QueryIntent::Education
+        );
+    }
+
+    #[test]
+    fn ex5267_preamble_before_what_is_still_education() {
+        // EX-5267: a leading preamble must not flip an educational "what is X"
+        // question to Ambiguous/Advice. This was the answer-rate bug: the same
+        // schooled fact is retrieved for both phrasings, but the prefixed form
+        // was mis-classified and the covenant abstained (confidence 0%).
+        assert_eq!(
+            QueryIntent::classify(
+                "According to the JNC8 guidelines, what is the first-line drug for hypertension?"
+            ),
+            QueryIntent::Education
+        );
+        assert_eq!(
+            QueryIntent::classify("In children's stories, what is the moral of the tortoise?"),
+            QueryIntent::Education
+        );
+    }
+
+    #[test]
+    fn ex5267_definitional_imperatives_are_education() {
+        // EX-5267: "Name one lifestyle measure…" is a definitional imperative,
+        // same class as the existing list/outline/summarize verbs.
+        assert_eq!(
+            QueryIntent::classify("Name one lifestyle measure that lowers blood pressure."),
+            QueryIntent::Education
+        );
+        assert_eq!(
+            QueryIntent::classify("State the first-line treatment for stage 2 hypertension."),
+            QueryIntent::Education
+        );
+    }
+
+    #[test]
+    fn ex5267_preamble_before_advice_is_still_advice() {
+        // Safety guard: broadening education detection must NOT reclassify a
+        // genuine advice query — `has_advice_signals` runs first and overrides.
+        assert_eq!(
+            QueryIntent::classify("Given my symptoms, should I take this medication?"),
+            QueryIntent::Advice
         );
     }
 

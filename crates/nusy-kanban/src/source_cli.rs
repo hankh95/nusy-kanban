@@ -262,8 +262,15 @@ mod tests {
         let dir = tempfile::TempDir::new().expect("create temp dir");
         let path = dir.path();
 
+        // CH-5968: `git init -b main` pins the initial branch to `main` EXPLICITLY, independent of
+        // the machine's `init.defaultBranch` config. Bare `git init` inherits the config default —
+        // `master` on any box that hasn't set `init.defaultBranch=main` (e.g. git 2.43 on the DGX1
+        // Spark) — but every bundle test below references `main`, so on such a box `base "main"`
+        // doesn't exist and `git checkout main` silently fails (leaving dst on `feature`, which git
+        // 2.43 then refuses to fetch into). This was SG-5071's "env-sensitive" failure, mis-ignored
+        // by CH-5097 as parallel-flakiness. `-b main` is git 2.28+ (all fleet machines).
         Command::new("git")
-            .args(["init"])
+            .args(["init", "-b", "main"])
             .current_dir(path)
             .output()
             .expect("git init");
@@ -284,8 +291,16 @@ mod tests {
             .current_dir(path)
             .output()
             .expect("git add");
+        // CH-5097: pin the initial commit's author+committer dates so EVERY temp repo's `main`
+        // (same content + author + message + fixed dates ⇒ same SHA) is byte-identical. The
+        // bundle tests create an *incremental* bundle (feature..main) whose prerequisite is
+        // `main`; with a wall-clock date, two temp repos created in different seconds get
+        // different `main` SHAs, so `dst` lacks the prerequisite → "Repository lacks these
+        // prerequisite commits" → flaky failure under load. A fixed date makes it deterministic.
         Command::new("git")
             .args(["commit", "-m", "initial commit"])
+            .env("GIT_AUTHOR_DATE", "2020-01-01T00:00:00Z")
+            .env("GIT_COMMITTER_DATE", "2020-01-01T00:00:00Z")
             .current_dir(path)
             .output()
             .expect("git commit");
@@ -309,22 +324,39 @@ mod tests {
     }
 
     /// Create a bundle using git -C (avoids CWD mutation).
+    /// A private scratch location for a bundle (HZ-6031).
+    ///
+    /// Returns the owning `TempDir` — the caller must hold it for as long as the file is
+    /// needed, since dropping it removes the directory.
+    ///
+    /// Uniqueness is STRUCTURAL (each TempDir is a distinct directory) rather than derived
+    /// from a clock. The previous implementation built
+    /// `temp_dir()/nk-test-{branch}-{pid}-{nanos}` — and in a parallel `cargo test` all
+    /// tests share one pid while several share the branch name, so uniqueness rested
+    /// entirely on `SystemTime::now().as_nanos()`, which the clock does not resolve to.
+    fn bundle_scratch() -> Result<(tempfile::TempDir, std::path::PathBuf), String> {
+        let dir = tempfile::TempDir::new().map_err(|e| format!("bundle tempdir: {e}"))?;
+        let path = dir.path().join("bundle.pack");
+        Ok((dir, path))
+    }
+
     fn create_bundle_in(
         dir: &std::path::Path,
         branch: &str,
         base: &str,
     ) -> Result<Vec<u8>, String> {
-        let id = std::process::id();
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let tmp = std::env::temp_dir().join(format!(
-            "nk-test-{}-{}-{}.bundle",
-            branch.replace('/', "-"),
-            id,
-            ts
-        ));
+        // HZ-6031: the bundle lives in its OWN TempDir, not the shared system temp dir.
+        //
+        // This path used to be temp_dir()/nk-test-{branch}-{pid}-{nanos}.bundle. Under a
+        // parallel `cargo test`, every test in this binary shares ONE pid and several use
+        // the branch name "feature", so uniqueness rested entirely on
+        // SystemTime::now().as_nanos() — and the clock does not actually resolve to
+        // nanoseconds. Two threads landing on the same tick produced the SAME path, and
+        // git failed on its own lock: "Unable to create '...bundle.lock': File exists."
+        //
+        // A per-call TempDir is unique by construction and auto-removes on drop, so
+        // uniqueness no longer depends on a clock (and /tmp stops accumulating bundles).
+        let (_bundle_dir, tmp) = bundle_scratch()?;
 
         let base_exists = Command::new("git")
             .args(["-C", &dir.to_string_lossy(), "rev-parse", "--verify", base])
@@ -366,18 +398,15 @@ mod tests {
         }
 
         let data = std::fs::read(&tmp).map_err(|e| format!("read: {e}"))?;
-        let _ = std::fs::remove_file(&tmp);
+        // bundle_dir drops here and removes the file — no manual unlink needed.
         Ok(data)
     }
 
     /// Apply a bundle to a repo using git -C.
     fn apply_bundle_in(dir: &std::path::Path, data: &[u8], branch: &str) -> Result<String, String> {
-        let id = std::process::id();
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let tmp = std::env::temp_dir().join(format!("nk-test-pull-{}-{}.bundle", id, ts));
+        // HZ-6031: same fix as create_bundle_in — and this one was MORE collision-prone,
+        // since its name carried no branch at all, leaving only {pid}-{nanos}.
+        let (_bundle_dir, tmp) = bundle_scratch()?;
         std::fs::write(&tmp, data).map_err(|e| format!("write: {e}"))?;
 
         let fetch = Command::new("git")
@@ -404,6 +433,9 @@ mod tests {
         Ok(format!("Pulled {branch}"))
     }
 
+    // CH-5968: un-ignored — the failures were the deterministic `main`-vs-`master` default-branch
+    // bug in init_temp_repo (fixed above with `git init -b main`), NOT parallel-flakiness. With that
+    // fixed + CH-5097's pinned-date prerequisite determinism, these run reliably in the normal suite.
     #[test]
     fn test_create_bundle_produces_bytes() {
         let repo = init_temp_repo();
@@ -490,6 +522,59 @@ mod tests {
         assert!(
             err.contains("conflict") || err.contains("non-fast-forward"),
             "error should mention conflict: {err}"
+        );
+    }
+
+    /// HZ-6031 regression: concurrent bundle paths must be distinct.
+    ///
+    /// The defect was that the scratch path came from
+    /// `temp_dir()/nk-test-{branch}-{pid}-{nanos}` — under a parallel `cargo test` every
+    /// test shares ONE pid and several share the branch name "feature", so uniqueness
+    /// rested solely on a clock that does not resolve to nanoseconds. Two threads on the
+    /// same tick produced an identical path and git failed on its own lock.
+    ///
+    /// This hammers path acquisition in a TIGHT loop with NO per-thread setup — deliberately,
+    /// because my first attempt at this test did full repo setup per thread and therefore
+    /// PASSED against the buggy code: the milliseconds of setup spread the threads out so
+    /// they never landed on the same tick. A regression test that cannot fail is worse than
+    /// none, so this one targets the path itself.
+    #[test]
+    fn hz6031_concurrent_bundle_paths_are_distinct() {
+        use std::collections::HashSet;
+        use std::sync::{Arc, Mutex};
+
+        const THREADS: usize = 8;
+        const PER_THREAD: usize = 64;
+
+        let seen: Arc<Mutex<Vec<std::path::PathBuf>>> = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::with_capacity(THREADS);
+        for _ in 0..THREADS {
+            let seen = Arc::clone(&seen);
+            handles.push(std::thread::spawn(move || {
+                // Hold each TempDir until the batch is collected — otherwise a dropped dir
+                // could be reused and mask a genuine collision.
+                let mut keep = Vec::with_capacity(PER_THREAD);
+                for _ in 0..PER_THREAD {
+                    let (dir, path) = bundle_scratch().expect("scratch");
+                    seen.lock().expect("lock").push(path);
+                    keep.push(dir);
+                }
+                keep
+            }));
+        }
+        let _held: Vec<_> = handles
+            .into_iter()
+            .map(|h| h.join().expect("join"))
+            .collect();
+
+        let paths = seen.lock().expect("lock");
+        let unique: HashSet<&std::path::PathBuf> = paths.iter().collect();
+        assert_eq!(
+            unique.len(),
+            paths.len(),
+            "{} of {} concurrently-acquired bundle paths COLLIDED — uniqueness is back on a clock",
+            paths.len() - unique.len(),
+            paths.len()
         );
     }
 }

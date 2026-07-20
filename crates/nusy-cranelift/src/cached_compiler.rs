@@ -87,6 +87,12 @@ pub struct CachedWasmCompiler {
     /// Reverse index: node_id → body_hash for invalidation by node ID.
     node_index: std::collections::HashMap<String, String>,
     stats: CachedStats,
+    /// When true, `compile()` skips the cache lookup and always compiles fresh
+    /// (every function counts as a miss, so `cache_hits` stays 0). Set for a
+    /// `nk build --clean` run so `--clean` actually bypasses the cache
+    /// (CH-6044 — previously `config.clean` was plumbed but never honored, so
+    /// intra-run cross-crate duplicate body-hashes still produced cache hits).
+    bypass_cache: bool,
 }
 
 impl CachedWasmCompiler {
@@ -98,6 +104,7 @@ impl CachedWasmCompiler {
             wasm_store: std::collections::HashMap::new(),
             node_index: std::collections::HashMap::new(),
             stats: CachedStats::new(),
+            bypass_cache: false,
         }
     }
 
@@ -109,7 +116,14 @@ impl CachedWasmCompiler {
             wasm_store: std::collections::HashMap::new(),
             node_index: std::collections::HashMap::new(),
             stats: CachedStats::new(),
+            bypass_cache: false,
         }
+    }
+
+    /// Enable or disable cache bypass. When enabled, `compile()` ignores any
+    /// cached artifact and always compiles fresh (used by `nk build --clean`).
+    pub fn set_bypass_cache(&mut self, bypass: bool) {
+        self.bypass_cache = bypass;
     }
 
     /// Compile a CodeNode, using cache if available.
@@ -120,8 +134,11 @@ impl CachedWasmCompiler {
         let body = node.body.as_deref().ok_or(CraneliftError::MissingBody)?;
         let body_hash = compute_body_hash(body);
 
-        // Check cache — both BuildCache entry and stored WASM artifact must exist
-        if self.cache.get(&body_hash).is_some()
+        // Check cache — both BuildCache entry and stored WASM artifact must exist.
+        // A `--clean` build (bypass_cache) skips the lookup entirely so every
+        // function compiles fresh and `cache_hits` stays 0 (CH-6044).
+        if !self.bypass_cache
+            && self.cache.get(&body_hash).is_some()
             && let Some((fn_name, wasm_bytes)) = self.wasm_store.get(&body_hash)
         {
             self.stats.hits.fetch_add(1, Ordering::Relaxed);
@@ -306,6 +323,35 @@ mod tests {
             "cache hit ({:?}) should be faster than miss ({:?})",
             second_time,
             first_time
+        );
+    }
+
+    #[test]
+    fn test_bypass_cache_forces_all_misses() {
+        // CH-6044: with bypass_cache set (a `nk build --clean` run), compiling
+        // the SAME node twice must never register a cache hit — both are fresh
+        // compiles, so `cache_hits` stays 0 and `--clean` reports cached=0.
+        let mut c = compiler();
+        c.set_bypass_cache(true);
+        let node = make_node("add", "pub fn add(a: i64, b: i64) -> i64 { a + b }");
+
+        c.compile(&node).expect("first compile");
+        c.compile(&node).expect("second compile"); // identical body — would hit if cache active
+
+        let stats = c.stats_snapshot();
+        assert_eq!(stats.hits, 0, "bypass_cache must produce zero cache hits");
+        assert_eq!(
+            stats.misses, 2,
+            "both compiles are fresh misses under bypass"
+        );
+
+        // Disabling bypass restores normal caching: the third compile hits.
+        c.set_bypass_cache(false);
+        c.compile(&node).expect("third compile");
+        let stats = c.stats_snapshot();
+        assert_eq!(
+            stats.hits, 1,
+            "re-enabling cache lets the identical body hit"
         );
     }
 

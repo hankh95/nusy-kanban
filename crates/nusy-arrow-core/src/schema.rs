@@ -44,6 +44,10 @@ pub mod col {
     /// | `retracted`. `derived` is set only by governed engine write-back
     /// ([`crate::epistemic::promote_derived_fact`]); a null value reads as `asserted`.
     pub const EPISTEMIC_STATUS: usize = 18;
+    /// EX-5021: salience/importance score in `[0,1]` (null = unscored). Set only by
+    /// governed dream write-back (the ImportanceScorer); ranks retrieval, never gates
+    /// provability — salience never promotes a triple to `asserted` or `Proven`.
+    pub const SALIENCE: usize = 19;
 }
 
 /// Named column indices for the Chunks schema (Y0 fine-grained provenance).
@@ -68,7 +72,7 @@ pub mod chunk_col {
 }
 
 /// Current schema version for the Triples table.
-pub const TRIPLES_SCHEMA_VERSION: &str = "1.4.0";
+pub const TRIPLES_SCHEMA_VERSION: &str = "1.5.0";
 
 /// Current schema version for the Chunks table.
 pub const CHUNKS_SCHEMA_VERSION: &str = "1.0.0";
@@ -125,6 +129,13 @@ pub fn triples_schema() -> Schema {
         // `derived`/`believed`/`retracted` only by governed write-back, never at
         // construction time — so it is a schema column, not a `Triple` field.
         Field::new("epistemic_status", DataType::Utf8, true),
+        // EX-5021 (VY-Dreaming E2): salience/importance score in [0,1] (nullable; null =
+        // unscored). Populated by the dream ImportanceScorer (frequency × confidence ×
+        // recency-decay) via governed write-back; surfaced to retrieval ranking. A sidecar
+        // — it ranks, it never gates: salience NEVER promotes a triple to `asserted` and
+        // NEVER admits one to the Proven slice. Like `epistemic_status`, it is set only by
+        // governed write-back, so it is a schema column, not a `Triple` field.
+        Field::new("salience", DataType::Float64, true),
     ])
 }
 
@@ -272,54 +283,58 @@ pub fn normalize_to_current(
     batch: &RecordBatch,
     from_version: &str,
 ) -> std::result::Result<RecordBatch, arrow::error::ArrowError> {
-    use arrow::array::StringArray;
+    use arrow::array::new_null_array;
 
-    // Trailing nullable columns appended since each version (all Utf8, all read as a
-    // sensible default): certifiability_class (+1.2.0), object_datatype (+1.3.0),
-    // epistemic_status (+1.4.0). `append_trailing_nulls(batch, k)` adds k null columns
-    // and rebuilds against the current (19-col) schema.
-    let append_trailing_nulls = |batch: &RecordBatch, k: usize| {
+    // Each schema version appended nullable trailing columns; `normalize` pads an older
+    // batch up to the CURRENT schema by appending the *last k* current columns as TYPED
+    // nulls. **Type-aware** (EX-5021): the trailing set is no longer all-Utf8 —
+    // certifiability_class(+1.2.0, Utf8) · object_datatype(+1.3.0, Utf8) ·
+    // epistemic_status(+1.4.0, Utf8) · salience(+1.5.0, Float64). `new_null_array` builds
+    // each padding column with its field's real datatype, so salience pads as Float64.
+    let schema = triples_schema();
+    let total = schema.fields().len();
+    let append_trailing = |batch: &RecordBatch, k: usize| {
         let num_rows = batch.num_rows();
-        let mut columns: Vec<Arc<dyn arrow::array::Array>> = Vec::with_capacity(19);
-        for i in 0..batch.num_columns() {
-            columns.push(batch.column(i).clone());
-        }
-        let nulls: Vec<Option<&str>> = vec![None; num_rows];
-        for _ in 0..k {
-            columns.push(Arc::new(StringArray::from(nulls.clone())));
+        let mut columns: Vec<Arc<dyn arrow::array::Array>> = (0..batch.num_columns())
+            .map(|i| batch.column(i).clone())
+            .collect();
+        for field in &schema.fields()[total - k..] {
+            columns.push(new_null_array(field.data_type(), num_rows));
         }
         RecordBatch::try_new(Arc::new(triples_schema()), columns)
     };
 
     match from_version {
-        "1.4.0" => Ok(batch.clone()),
-        // +epistemic_status
-        "1.3.0" => append_trailing_nulls(batch, 1),
-        // +object_datatype, +epistemic_status
-        "1.2.0" => append_trailing_nulls(batch, 2),
-        // +certifiability_class, +object_datatype, +epistemic_status
-        "1.1.0" => append_trailing_nulls(batch, 3),
+        "1.5.0" => Ok(batch.clone()),
+        // +salience
+        "1.4.0" => append_trailing(batch, 1),
+        // +epistemic_status, +salience
+        "1.3.0" => append_trailing(batch, 2),
+        // +object_datatype, +epistemic_status, +salience
+        "1.2.0" => append_trailing(batch, 3),
+        // +certifiability_class, +object_datatype, +epistemic_status, +salience
+        "1.1.0" => append_trailing(batch, 4),
         "1.0.0" => {
             // v1.0.0 (15 cols) also inserts a null source_chunk_id at index 9, then the
-            // three trailing nullable columns through to v1.4.0 (19 cols total).
+            // four trailing nullable columns through to v1.5.0 (20 cols total).
             let num_rows = batch.num_rows();
-            let nulls: Vec<Option<&str>> = vec![None; num_rows];
-            let mut columns: Vec<Arc<dyn arrow::array::Array>> = Vec::with_capacity(19);
+            let mut columns: Vec<Arc<dyn arrow::array::Array>> = Vec::with_capacity(total);
             for i in 0..9 {
                 columns.push(batch.column(i).clone()); // triple_id..source_document
             }
-            columns.push(Arc::new(StringArray::from(nulls.clone()))); // source_chunk_id at 9
+            // source_chunk_id at 9 (Utf8 null)
+            columns.push(new_null_array(schema.field(9).data_type(), num_rows));
             for i in 9..batch.num_columns() {
                 columns.push(batch.column(i).clone()); // extracted_by..deleted
             }
-            // certifiability_class + object_datatype + epistemic_status
-            for _ in 0..3 {
-                columns.push(Arc::new(StringArray::from(nulls.clone())));
+            // certifiability_class + object_datatype + epistemic_status + salience
+            for field in &schema.fields()[total - 4..] {
+                columns.push(new_null_array(field.data_type(), num_rows));
             }
             RecordBatch::try_new(Arc::new(triples_schema()), columns)
         }
         other => Err(arrow::error::ArrowError::InvalidArgumentError(format!(
-            "Unknown schema version '{}'. Supported: 1.0.0, 1.1.0, 1.2.0, 1.3.0, 1.4.0. \
+            "Unknown schema version '{}'. Supported: 1.0.0, 1.1.0, 1.2.0, 1.3.0, 1.4.0, 1.5.0. \
              Upgrade nusy-arrow-core to read data from newer versions.",
             other
         ))),
@@ -435,12 +450,13 @@ mod tests {
                     "http://www.w3.org/2001/XMLSchema#string",
                 )])), // object_datatype
                 Arc::new(StringArray::from(vec![None::<&str>])), // epistemic_status
+                Arc::new(Float64Array::from(vec![None::<f64>])), // salience (EX-5021)
             ],
         )
         .expect("Failed to create triples RecordBatch");
 
         assert_eq!(batch.num_rows(), 1);
-        assert_eq!(batch.num_columns(), 19);
+        assert_eq!(batch.num_columns(), 20);
     }
 
     #[test]
@@ -535,7 +551,7 @@ mod tests {
         assert_eq!(old_batch.num_columns(), 15);
 
         let normalized = normalize_to_current(&old_batch, "1.0.0").unwrap();
-        assert_eq!(normalized.num_columns(), 19);
+        assert_eq!(normalized.num_columns(), 20);
         assert_eq!(normalized.schema(), Arc::new(triples_schema()));
 
         // source_chunk_id (index 9) should be null
@@ -612,7 +628,7 @@ mod tests {
         assert_eq!(batch.num_columns(), 16);
 
         let normalized = normalize_to_current(&batch, "1.1.0").unwrap();
-        assert_eq!(normalized.num_columns(), 19);
+        assert_eq!(normalized.num_columns(), 20);
         assert_eq!(normalized.schema(), Arc::new(triples_schema()));
 
         // certifiability_class (col 16) should be null
@@ -651,6 +667,7 @@ mod tests {
                 Arc::new(StringArray::from(vec![None::<&str>])), // certifiability_class
                 Arc::new(StringArray::from(vec![None::<&str>])), // object_datatype
                 Arc::new(StringArray::from(vec![None::<&str>])), // epistemic_status
+                Arc::new(Float64Array::from(vec![None::<f64>])), // salience (EX-5021)
             ],
         )
         .unwrap();

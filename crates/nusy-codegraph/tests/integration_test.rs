@@ -294,8 +294,8 @@ fn test_large_batch_performance() {
             docstring: Some(format!("Function {i} docstring.")),
             body_hash: Some(format!("hash_{i}")),
             body: Some(format!("def func_{i}(x): return x + {i}")),
-            loc: Some((i % 100 + 5) as i32),
-            cyclomatic_complexity: Some((i % 20 + 1) as i32),
+            loc: Some(i % 100 + 5),
+            cyclomatic_complexity: Some(i % 20 + 1),
             coverage_pct: Some((i % 100) as f64 / 100.0),
             last_modified: None,
             ..Default::default()

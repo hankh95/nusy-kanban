@@ -3,6 +3,7 @@ members = [
     "crates/noesis-ship",
     "crates/nusy-arrow-core",
     "crates/nusy-arrow-git",
+    "crates/nusy-artifact-types",
     "crates/nusy-codegraph",
     "crates/nusy-conductor",
     "crates/nusy-cranelift",

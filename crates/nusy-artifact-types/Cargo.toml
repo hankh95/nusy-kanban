@@ -1,0 +1,12 @@
+[package]
+name = "nusy-artifact-types"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false  # CH-4734: crates.io retired (SG-4717) — distribution via GitHub
+repository.workspace = true
+description = "Pure-data knowledge-artifact types (lifecycle, versioning, dependencies) — arrow-free (EX-4920)"
+
+[dependencies]
+# Intentionally no Arrow/Parquet deps — this crate is arrow-free so the
+# defeasible reasoner can join the FOSS suite without pulling in Arrow.

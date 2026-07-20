@@ -837,7 +837,7 @@ mod tests {
 
         // Verify relation
         let hyp_rels = rels.query_relations(&hyp.id);
-        assert!(hyp_rels.len() >= 1); // at least the validates relation
+        assert!(!hyp_rels.is_empty()); // at least the validates relation
     }
 
     #[test]

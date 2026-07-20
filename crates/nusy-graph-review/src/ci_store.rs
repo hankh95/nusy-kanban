@@ -163,15 +163,10 @@ impl CiResultStore {
                 .as_any()
                 .downcast_ref::<StringArray>();
             match prop_ids {
-                Some(ids) => {
-                    // Keep batches that DON'T match (or multi-row batches we can't filter easily)
-                    if batch.num_rows() == 1 {
-                        ids.value(0) != proposal_id
-                    } else {
-                        true // Keep multi-row batches (we always write single-row)
-                    }
-                }
-                None => true,
+                // Keep batches that DON'T match; multi-row batches are always kept
+                // (we always write single-row).
+                Some(ids) if batch.num_rows() == 1 => ids.value(0) != proposal_id,
+                _ => true,
             }
         });
     }
@@ -318,6 +313,21 @@ impl CiResultView {
         };
         out.push_str(&format!("  {fmt_icon} Format: {fmt_label}\n"));
 
+        // Regression gate (CH-5069): surfaced from the stored summary, which carries
+        // the per-check breakdown from `CiCheckSuite::summary()` (line "{icon}
+        // regression: …"). The dedicated test/clippy/fmt fields predate this gate, so
+        // rather than a risky Arrow-schema migration we read the line back from the
+        // summary. Results recorded before the gate existed simply have no such line.
+        if let Some(reg_line) = self.summary.lines().find(|l| l.contains("regression:")) {
+            let detail = reg_line.split("regression:").nth(1).unwrap_or("").trim();
+            let reg_icon = if reg_line.contains('✗') {
+                "✗"
+            } else {
+                "✓"
+            };
+            out.push_str(&format!("  {reg_icon} Regression: {detail}\n"));
+        }
+
         if let Some(ref err) = self.error_message {
             out.push_str(&format!("\n  Error: {err}\n"));
         }
@@ -355,6 +365,49 @@ mod tests {
         assert_eq!(view.test_passed, 42);
         assert_eq!(view.test_failed, 0);
         assert!(view.fmt_clean);
+    }
+
+    #[test]
+    fn test_format_checks_surfaces_regression_line() {
+        // CH-5069: a stored summary carrying the regression check line is rendered as
+        // a check in `nk pr checks`, and a regressed gate shows the overall FAILED.
+        let view = CiResultView {
+            run_id: "CI-0007".to_string(),
+            status: CiStatus::Failed,
+            test_passed: 40,
+            test_failed: 0,
+            clippy_warnings: 0,
+            fmt_clean: true,
+            duration_secs: 1.2,
+            error_message: None,
+            summary: "CI FAILED (1.2s)\n✓ test: 40 passed\n✓ clippy: no warnings\n\
+                      ✓ fmt: clean\n✗ regression: 7 invariant(s) held, 1 regressed"
+                .to_string(),
+            completed_at_ms: 0,
+        };
+        let out = view.format_checks();
+        assert!(out.contains("CI Status: FAILED"));
+        assert!(out.contains("✗ Regression: 7 invariant(s) held, 1 regressed"));
+    }
+
+    #[test]
+    fn test_format_checks_no_regression_line_for_old_results() {
+        // Results recorded before the gate existed have no "regression:" in their
+        // summary — format_checks must not invent a regression line (backward compat).
+        let view = CiResultView {
+            run_id: "CI-0001".to_string(),
+            status: CiStatus::Passed,
+            test_passed: 42,
+            test_failed: 0,
+            clippy_warnings: 0,
+            fmt_clean: true,
+            duration_secs: 8.5,
+            error_message: None,
+            summary: "42 passed, 0 failed".to_string(),
+            completed_at_ms: 0,
+        };
+        let out = view.format_checks();
+        assert!(!out.contains("Regression:"));
     }
 
     #[test]

@@ -257,20 +257,100 @@ impl PersistenceEngine {
 
     /// Check for and recover from an incomplete save (WAL present on startup).
     ///
-    /// If a WAL file exists, the previous save was interrupted. The Parquet
-    /// files may be in an inconsistent state. Since we use atomic file
-    /// replacement (write .tmp then rename), the old files are still valid.
-    /// Remove the WAL and proceed — the old state is correct.
+    /// Backwards-compatible wrapper over [`Self::recover_wal`]; returns whether
+    /// recovery was needed. Prefer `recover_wal` — it reports what was
+    /// quarantined and whether the interrupted save looked NEWER than the state
+    /// about to be loaded.
     pub fn check_wal_recovery(root: &Path) -> Result<bool> {
-        let wal_path = persist::data_dir(root)?.join("_wal.json");
-        if wal_path.exists() {
-            // WAL exists = previous save was interrupted
-            // Old Parquet files are still valid (atomic rename guarantees this)
-            let _ = std::fs::remove_file(&wal_path);
-            Ok(true) // Recovery was needed
-        } else {
-            Ok(false) // Clean state
+        Ok(Self::recover_wal(root)?.recovered)
+    }
+
+    /// Recover from an incomplete save, preserving the evidence.
+    ///
+    /// A WAL (or an orphaned `*.parquet.tmp`) means the previous save was
+    /// interrupted. Because saves are atomic (write `.tmp`, then rename), the
+    /// live Parquet files are still *valid* — so we still load them, and a
+    /// truncated `.tmp` is never trusted as a store.
+    ///
+    /// What changed (CH-6055 / HZ-6053): we no longer *delete* the evidence.
+    /// The previous implementation unlinked the WAL and left orphaned `.tmp`
+    /// files to be silently overwritten by the next save. During HZ-6053 that
+    /// interrupted write (`items.parquet.tmp`) was the **newest copy of the
+    /// store in existence** — the live Parquet was two months stale — and
+    /// recovery would have destroyed it. It survived only by luck.
+    ///
+    /// So: quarantine the WAL and every orphaned `.tmp` into a timestamped
+    /// directory, and if a quarantined `.tmp` is newer than the live Parquet
+    /// it shadows, flag the load as `suspect` so the caller can refuse to
+    /// proceed silently instead of serving a rollback.
+    pub fn recover_wal(root: &Path) -> Result<WalRecovery> {
+        let dir = persist::data_dir(root)?;
+        let wal_path = dir.join("_wal.json");
+
+        let mut orphans: Vec<PathBuf> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|e| e == "tmp") {
+                    orphans.push(path);
+                }
+            }
         }
+        orphans.sort();
+
+        if !wal_path.exists() && orphans.is_empty() {
+            return Ok(WalRecovery::default());
+        }
+
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let quarantine = dir.join("_recovery").join(stamp.to_string());
+        std::fs::create_dir_all(&quarantine)?;
+
+        let mut quarantined = Vec::new();
+        let mut suspect = Vec::new();
+
+        // A `.tmp` newer than the live Parquet it shadows means the interrupted
+        // save carried state the live file does not have. Compare mtimes rather
+        // than parsing a file we already know may be truncated.
+        for orphan in &orphans {
+            if let Some(live) = orphan.file_stem().map(|s| dir.join(s)) {
+                let newer = match (mtime(orphan), mtime(&live)) {
+                    (Some(t), Some(l)) => t > l,
+                    // live file missing entirely — the .tmp is all there is
+                    (Some(_), None) => true,
+                    _ => false,
+                };
+                if newer {
+                    suspect.push(live);
+                }
+            }
+            let dest = quarantine.join(
+                orphan
+                    .file_name()
+                    .unwrap_or_else(|| std::ffi::OsStr::new("orphan.tmp")),
+            );
+            // Move, never unlink — this may be the only copy of recent state.
+            if std::fs::rename(orphan, &dest).is_ok() {
+                quarantined.push(dest);
+            }
+        }
+
+        if wal_path.exists() {
+            let dest = quarantine.join("_wal.json");
+            if std::fs::rename(&wal_path, &dest).is_ok() {
+                quarantined.push(dest);
+            }
+        }
+
+        Ok(WalRecovery {
+            recovered: true,
+            quarantine_dir: Some(quarantine),
+            quarantined,
+            suspect,
+        })
     }
 
     /// Graceful shutdown — save state before exit.
@@ -302,6 +382,33 @@ impl PersistenceEngine {
             .unwrap_or_default()
             .as_millis() as u64
     }
+}
+
+/// Outcome of an interrupted-save recovery (CH-6055).
+#[derive(Debug, Default, Clone)]
+pub struct WalRecovery {
+    /// Whether an interrupted save was detected (WAL and/or orphaned `.tmp`).
+    pub recovered: bool,
+    /// Directory the evidence was moved to, if any.
+    pub quarantine_dir: Option<PathBuf>,
+    /// Files moved into quarantine (post-move paths).
+    pub quarantined: Vec<PathBuf>,
+    /// Live Parquet paths that are OLDER than the interrupted write shadowing
+    /// them. Non-empty means loading the live state is a probable rollback —
+    /// the caller should surface this rather than proceed silently.
+    pub suspect: Vec<PathBuf>,
+}
+
+impl WalRecovery {
+    /// True when the state about to be loaded looks older than the save that
+    /// was interrupted — i.e. loading it would silently revert the store.
+    pub fn is_suspect(&self) -> bool {
+        !self.suspect.is_empty()
+    }
+}
+
+fn mtime(path: &Path) -> Option<SystemTime> {
+    std::fs::metadata(path).ok()?.modified().ok()
 }
 
 /// Metrics from a save operation.
@@ -443,8 +550,156 @@ mod tests {
         let recovered = PersistenceEngine::check_wal_recovery(dir.path()).expect("check");
         assert!(recovered);
 
-        // WAL should be cleaned up
+        // WAL is cleared from the data dir (moved to quarantine, not unlinked)
         assert!(!data_dir.join("_wal.json").exists());
+    }
+
+    // ─── CH-6055: quarantine instead of discard (HZ-6053) ──────────────────
+
+    /// The WAL must be PRESERVED, not unlinked. During HZ-6053 the interrupted
+    /// save was the only copy of two months of state.
+    #[test]
+    fn test_wal_recovery_quarantines_wal_instead_of_deleting() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let data_dir = dir.path().join(".nusy-kanban");
+        std::fs::create_dir_all(&data_dir).expect("mkdir");
+        std::fs::write(data_dir.join("_wal.json"), r#"["items"]"#).expect("write");
+
+        let rec = PersistenceEngine::recover_wal(dir.path()).expect("recover");
+
+        assert!(rec.recovered);
+        assert!(!data_dir.join("_wal.json").exists(), "WAL left in place");
+        let q = rec.quarantine_dir.expect("quarantine dir");
+        assert!(q.join("_wal.json").exists(), "WAL was destroyed, not moved");
+        assert_eq!(
+            std::fs::read_to_string(q.join("_wal.json")).expect("read"),
+            r#"["items"]"#,
+            "quarantined WAL contents must survive verbatim"
+        );
+    }
+
+    /// An orphaned `.tmp` is the truncated interrupted write. It must be
+    /// preserved even though it is never loaded.
+    #[test]
+    fn test_orphaned_tmp_is_quarantined_not_left_to_be_overwritten() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let data_dir = dir.path().join(".nusy-kanban");
+        std::fs::create_dir_all(&data_dir).expect("mkdir");
+        std::fs::write(data_dir.join("items.parquet"), b"live").expect("write");
+        std::fs::write(data_dir.join("items.parquet.tmp"), b"interrupted").expect("write");
+
+        let rec = PersistenceEngine::recover_wal(dir.path()).expect("recover");
+
+        assert!(rec.recovered, "orphaned .tmp alone must trigger recovery");
+        assert!(
+            !data_dir.join("items.parquet.tmp").exists(),
+            ".tmp left in place — next save would silently overwrite it"
+        );
+        let q = rec.quarantine_dir.expect("quarantine dir");
+        assert_eq!(
+            std::fs::read_to_string(q.join("items.parquet.tmp")).expect("read"),
+            "interrupted",
+            "the interrupted write must survive verbatim"
+        );
+        // The live Parquet is untouched — atomic-rename guarantee preserved.
+        assert_eq!(
+            std::fs::read_to_string(data_dir.join("items.parquet")).expect("read"),
+            "live"
+        );
+    }
+
+    /// The HZ-6053 shape: the interrupted write is NEWER than the live file,
+    /// so loading the live state is a rollback. That must be flagged.
+    #[test]
+    fn test_tmp_newer_than_live_parquet_is_flagged_suspect() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let data_dir = dir.path().join(".nusy-kanban");
+        std::fs::create_dir_all(&data_dir).expect("mkdir");
+
+        std::fs::write(data_dir.join("items.parquet"), b"stale").expect("write");
+        // Ensure a strictly later mtime for the interrupted write.
+        std::thread::sleep(Duration::from_millis(1100));
+        std::fs::write(data_dir.join("items.parquet.tmp"), b"newer").expect("write");
+
+        let rec = PersistenceEngine::recover_wal(dir.path()).expect("recover");
+
+        assert!(rec.is_suspect(), "a newer .tmp must mark the load suspect");
+        assert!(
+            rec.suspect.iter().any(|p| p.ends_with("items.parquet")),
+            "suspect list should name the live file being rolled back"
+        );
+    }
+
+    /// A `.tmp` OLDER than the live Parquet is a already-superseded leftover —
+    /// preserved, but not alarming. Guards against a permanently-suspect server.
+    #[test]
+    fn test_tmp_older_than_live_parquet_is_not_suspect() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let data_dir = dir.path().join(".nusy-kanban");
+        std::fs::create_dir_all(&data_dir).expect("mkdir");
+
+        std::fs::write(data_dir.join("items.parquet.tmp"), b"older").expect("write");
+        std::thread::sleep(Duration::from_millis(1100));
+        std::fs::write(data_dir.join("items.parquet"), b"live-and-newer").expect("write");
+
+        let rec = PersistenceEngine::recover_wal(dir.path()).expect("recover");
+
+        assert!(rec.recovered);
+        assert!(!rec.is_suspect(), "a superseded .tmp must not alarm");
+    }
+
+    /// A `.tmp` with no live counterpart at all is the worst case — it is the
+    /// only copy.
+    #[test]
+    fn test_tmp_with_missing_live_parquet_is_suspect() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let data_dir = dir.path().join(".nusy-kanban");
+        std::fs::create_dir_all(&data_dir).expect("mkdir");
+        std::fs::write(data_dir.join("proposals.parquet.tmp"), b"only-copy").expect("write");
+
+        let rec = PersistenceEngine::recover_wal(dir.path()).expect("recover");
+
+        assert!(
+            rec.is_suspect(),
+            "a .tmp with no live file is the only copy"
+        );
+    }
+
+    /// Clean startup must not create a quarantine directory.
+    #[test]
+    fn test_clean_startup_creates_no_quarantine() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let data_dir = dir.path().join(".nusy-kanban");
+        std::fs::create_dir_all(&data_dir).expect("mkdir");
+        std::fs::write(data_dir.join("items.parquet"), b"live").expect("write");
+
+        let rec = PersistenceEngine::recover_wal(dir.path()).expect("recover");
+
+        assert!(!rec.recovered);
+        assert!(rec.quarantine_dir.is_none());
+        assert!(!rec.is_suspect());
+        assert!(!data_dir.join("_recovery").exists());
+    }
+
+    /// Multi-table saves can be torn across several `.tmp` files at once.
+    #[test]
+    fn test_multiple_orphans_all_quarantined() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let data_dir = dir.path().join(".nusy-kanban");
+        std::fs::create_dir_all(&data_dir).expect("mkdir");
+        for n in ["items", "proposals", "runs"] {
+            std::fs::write(data_dir.join(format!("{n}.parquet.tmp")), b"x").expect("write");
+        }
+        std::fs::write(data_dir.join("_wal.json"), r#"["items"]"#).expect("write");
+
+        let rec = PersistenceEngine::recover_wal(dir.path()).expect("recover");
+
+        assert_eq!(rec.quarantined.len(), 4, "3 tmp files + the WAL");
+        let q = rec.quarantine_dir.expect("quarantine dir");
+        for n in ["items", "proposals", "runs"] {
+            assert!(q.join(format!("{n}.parquet.tmp")).exists(), "{n} lost");
+        }
+        assert!(q.join("_wal.json").exists());
     }
 
     #[test]

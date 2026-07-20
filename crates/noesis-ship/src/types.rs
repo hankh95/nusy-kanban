@@ -217,6 +217,20 @@ impl ChannelMessage {
 
 // ─── Config Types ───────────────────────────────────────────────────────────
 
+/// Mutual-TLS material for a NATS connection (EX-4986). Generic transport security — no PHI
+/// knowledge here; the product layer (`nusy-phi-policy`) decides *when* mTLS is required. A
+/// connection carrying PHI MUST set this (the PHI policy fails closed otherwise); the non-PHI
+/// fleet bus leaves it `None` and stays plaintext.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TlsConfig {
+    /// CA bundle that signs the server cert (and the client cert, for mTLS).
+    pub ca_path: std::path::PathBuf,
+    /// Client certificate presented for mutual authentication.
+    pub cert_path: std::path::PathBuf,
+    /// Private key for `cert_path`.
+    pub key_path: std::path::PathBuf,
+}
+
 /// NATS connection configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NatsConfig {
@@ -230,17 +244,24 @@ pub struct NatsConfig {
     /// Request timeout for operations.
     #[serde(with = "duration_serde")]
     pub request_timeout: Duration,
+
+    /// EX-4986: optional mutual TLS. `None` ⇒ plaintext (the non-PHI fleet-bus default, unchanged).
+    /// `Some` ⇒ [`ConnectionManager::connect`](crate::ConnectionManager) requires TLS and presents
+    /// the client cert — a PHI-carrying connection MUST set this (no plaintext fallback).
+    #[serde(default)]
+    pub tls: Option<TlsConfig>,
 }
 
 impl NatsConfig {
     /// Create a new NatsConfig with default timeouts.
     ///
-    /// Defaults: connect_timeout = 5s, request_timeout = 10s.
+    /// Defaults: connect_timeout = 5s, request_timeout = 10s, no TLS (plaintext).
     pub fn new(url: impl Into<String>) -> Self {
         Self {
             url: url.into(),
             connect_timeout: Duration::from_secs(5),
             request_timeout: Duration::from_secs(10),
+            tls: None,
         }
     }
 
@@ -254,6 +275,18 @@ impl NatsConfig {
     pub fn with_request_timeout(mut self, timeout: Duration) -> Self {
         self.request_timeout = timeout;
         self
+    }
+
+    /// Require mutual TLS on this connection (EX-4986) — the connection will `require_tls` and
+    /// present the given client cert/key against the CA. Use this for any PHI-carrying connection.
+    pub fn with_mtls(mut self, tls: TlsConfig) -> Self {
+        self.tls = Some(tls);
+        self
+    }
+
+    /// Whether this connection is configured for mutual TLS.
+    pub fn is_mtls(&self) -> bool {
+        self.tls.is_some()
     }
 }
 
@@ -593,5 +626,42 @@ mod tests {
         let result: std::result::Result<serde_json::Value, _> = serde_json::from_str("not json");
         let err: Error = result.unwrap_err().into();
         matches!(err, Error::Serialization(_));
+    }
+
+    #[test]
+    fn nats_config_defaults_to_plaintext() {
+        // EX-4986: the non-PHI fleet bus default is unchanged — no TLS.
+        let cfg = NatsConfig::new("nats://192.168.8.110:4222");
+        assert!(!cfg.is_mtls());
+        assert!(cfg.tls.is_none());
+    }
+
+    #[test]
+    fn with_mtls_requires_tls_and_round_trips() {
+        let tls = TlsConfig {
+            ca_path: "/etc/nats/ca.pem".into(),
+            cert_path: "/etc/nats/client.pem".into(),
+            key_path: "/etc/nats/client.key".into(),
+        };
+        let cfg = NatsConfig::new("nats://phi.internal:4222").with_mtls(tls.clone());
+        assert!(cfg.is_mtls());
+        assert_eq!(cfg.tls.as_ref().unwrap(), &tls);
+        // Config is serde round-trippable (it ships in service configs).
+        let json = serde_json::to_string(&cfg).unwrap();
+        let back: NatsConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.tls, Some(tls));
+    }
+
+    #[test]
+    fn tls_field_is_optional_in_deserialization() {
+        // A config written before EX-4986 (no `tls` key) still deserializes — #[serde(default)].
+        // Derive the legacy form by serializing a current config and stripping the `tls` key, so
+        // the test is robust to the duration_serde wire format.
+        let current = serde_json::to_value(NatsConfig::new("nats://x:4222")).unwrap();
+        let mut legacy = current.as_object().unwrap().clone();
+        legacy.remove("tls");
+        assert!(!legacy.contains_key("tls"));
+        let cfg: NatsConfig = serde_json::from_value(serde_json::Value::Object(legacy)).unwrap();
+        assert!(!cfg.is_mtls());
     }
 }

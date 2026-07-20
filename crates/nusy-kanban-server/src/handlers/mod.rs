@@ -49,11 +49,32 @@ pub(crate) const DEFAULT_STATES: &[&str] = &["backlog", "in_progress", "review",
 pub fn dispatch(subject: &str, payload: &[u8], state: &mut ServerState) -> Vec<u8> {
     let command = subject.strip_prefix("kanban.cmd.").unwrap_or(subject);
 
-    let result = match command {
+    // CH-6056: admit mutations BEFORE they touch memory. Once the store is not
+    // durable, refusing up front leaves nothing to roll back — the alternative
+    // is applying a change we cannot keep and then discovering it too late.
+    // Reads are deliberately unaffected: a degraded board is still worth
+    // reading, and going dark would be its own outage.
+    if is_mutation(command)
+        && let Err(reason) = state
+            .health
+            .admit_mutation(&crate::health::store_dir(&state.data_dir))
+    {
+        return error_response(
+            &format!(
+                "REFUSED — the kanban store is not accepting durable writes ({reason}). Your \
+                 change was NOT applied. Reads still work. Free the underlying problem (usually a \
+                 full disk); the server re-probes and recovers automatically. See HZ-6053."
+            ),
+            "STORE_DEGRADED",
+        );
+    }
+
+    let mut result = match command {
         // Core CRUD + analytics
-        "create" => handle_create(payload, &mut state.store),
+        "create" => handle_create(payload, &mut state.store, &mut state.relations),
         "move" => handle_move(payload, &mut state.store),
-        "update" => handle_update(payload, &mut state.store),
+        "ratify" => handle_ratify(payload, &mut state.store),
+        "update" => handle_update(payload, &mut state.store, &mut state.relations),
         "comment" => handle_comment(payload, &mut state.store),
         "rank" => handle_rank(payload, &mut state.store),
         "list" => handle_list(payload, &state.store),
@@ -115,7 +136,7 @@ pub fn dispatch(subject: &str, payload: &[u8], state: &mut ServerState) -> Vec<u
         "relation.query" => handle_relation_query(payload, &state.relations),
         // PR / Proposal commands (feature-gated)
         #[cfg(feature = "pr")]
-        "pr.create" => handle_pr_create(payload, &mut state.proposals),
+        "pr.create" => handle_pr_create(payload, &mut state.proposals, &state.data_dir),
         #[cfg(feature = "pr")]
         "pr.list" => handle_pr_list(payload, &state.proposals),
         #[cfg(feature = "pr")]
@@ -176,15 +197,23 @@ pub fn dispatch(subject: &str, payload: &[u8], state: &mut ServerState) -> Vec<u
         )),
     };
 
-    // After successful mutations, persist state
+    // After successful mutations, persist state.
+    //
+    // CH-6056 / HZ-6053: a persist failure is NOT a warning to step over. The
+    // mutation is already in memory but not on disk, so the store has diverged
+    // and a restart would discard it. Report the failure to the caller instead
+    // of acking a write we could not keep, and degrade the gate so the NEXT
+    // mutation is refused before it ever touches memory.
     if result.is_ok() && is_mutation(command) {
+        let mut persist_error: Option<String> = None;
+
         if let Err(e) = nusy_kanban::persist::save_store(&state.data_dir, &state.store) {
-            eprintln!("Warning: failed to persist store after {command}: {e}");
+            persist_error = Some(format!("store: {e}"));
         }
         if is_relation_mutation(command)
             && let Err(e) = nusy_kanban::persist::save_relations(&state.data_dir, &state.relations)
         {
-            eprintln!("Warning: failed to persist relations after {command}: {e}");
+            persist_error.get_or_insert(format!("relations: {e}"));
         }
         #[cfg(feature = "pr")]
         if is_pr_mutation(command)
@@ -195,7 +224,23 @@ pub fn dispatch(subject: &str, payload: &[u8], state: &mut ServerState) -> Vec<u
                 &state.ci_results,
             )
         {
-            eprintln!("Warning: failed to persist proposals after {command}: {e}");
+            persist_error.get_or_insert(format!("proposals: {e}"));
+        }
+
+        match persist_error {
+            Some(err) => {
+                state.health.record_persist_failure(command, &err);
+                result = Err(error_response(
+                    &format!(
+                        "'{command}' was applied in memory but COULD NOT BE PERSISTED ({err}). \
+                         Treat this write as LOST — it will not survive a restart. The server is \
+                         now DEGRADED and further mutations are refused until the store accepts \
+                         writes again. See HZ-6053."
+                    ),
+                    "STORE_NOT_DURABLE",
+                ));
+            }
+            None => state.health.record_persist_success(),
         }
     }
 
@@ -210,6 +255,7 @@ fn is_mutation(command: &str) -> bool {
         command,
         "create"
             | "move"
+            | "ratify"
             | "update"
             | "comment"
             | "delete"

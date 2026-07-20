@@ -276,7 +276,7 @@ fn test_roadmap_ranked_sorts_by_priority() {
         get_priority(a).cmp(&get_priority(b))
     });
 
-    let priorities: Vec<Option<String>> = backlog.iter().map(|b| batch_priority(b)).collect();
+    let priorities: Vec<Option<String>> = backlog.iter().map(batch_priority).collect();
     assert_eq!(priorities[0], Some("critical".to_string()));
     assert_eq!(priorities[1], Some("high".to_string()));
     assert_eq!(priorities[2], Some("medium".to_string()));

@@ -289,6 +289,45 @@ pub fn load_proposals(root: &Path) -> Result<(ProposalStore, CommentStore, CiRes
     Ok((proposals, comments, ci_results))
 }
 
+// ── Experiment Runs Persistence ─────────────────────────────────────────
+
+/// Load experiment runs from Parquet.
+pub fn load_experiment_runs(root: &Path) -> crate::experiment_runs::ExperimentRunStore {
+    let dir = match data_dir(root) {
+        Ok(d) => d,
+        Err(_) => return crate::experiment_runs::ExperimentRunStore::new(),
+    };
+
+    match restore_named_batches(&dir, &["experiment_runs"]) {
+        Ok(results) => {
+            for (name, batches) in results {
+                if name == "experiment_runs" {
+                    return crate::experiment_runs::ExperimentRunStore::from_batches(batches);
+                }
+            }
+            crate::experiment_runs::ExperimentRunStore::new()
+        }
+        Err(_) => crate::experiment_runs::ExperimentRunStore::new(),
+    }
+}
+
+/// Save experiment runs to Parquet.
+pub fn save_experiment_runs(
+    root: &Path,
+    store: &crate::experiment_runs::ExperimentRunStore,
+) -> Result<()> {
+    let dir = data_dir(root)?;
+    let batches = store.batches();
+
+    if batches.is_empty() {
+        return Ok(());
+    }
+
+    let schema = crate::schema::experiment_runs_schema();
+    save_named_batches(&[("experiment_runs", batches, &schema)], &dir)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,43 +409,4 @@ mod tests {
         let (loaded_store, _loaded_rels) = load_all(root).expect("load all");
         assert_eq!(loaded_store.active_item_count(), 1);
     }
-}
-
-// ── Experiment Runs Persistence ─────────────────────────────────────────
-
-/// Load experiment runs from Parquet.
-pub fn load_experiment_runs(root: &Path) -> crate::experiment_runs::ExperimentRunStore {
-    let dir = match data_dir(root) {
-        Ok(d) => d,
-        Err(_) => return crate::experiment_runs::ExperimentRunStore::new(),
-    };
-
-    match restore_named_batches(&dir, &["experiment_runs"]) {
-        Ok(results) => {
-            for (name, batches) in results {
-                if name == "experiment_runs" {
-                    return crate::experiment_runs::ExperimentRunStore::from_batches(batches);
-                }
-            }
-            crate::experiment_runs::ExperimentRunStore::new()
-        }
-        Err(_) => crate::experiment_runs::ExperimentRunStore::new(),
-    }
-}
-
-/// Save experiment runs to Parquet.
-pub fn save_experiment_runs(
-    root: &Path,
-    store: &crate::experiment_runs::ExperimentRunStore,
-) -> Result<()> {
-    let dir = data_dir(root)?;
-    let batches = store.batches();
-
-    if batches.is_empty() {
-        return Ok(());
-    }
-
-    let schema = crate::schema::experiment_runs_schema();
-    save_named_batches(&[("experiment_runs", batches, &schema)], &dir)?;
-    Ok(())
 }

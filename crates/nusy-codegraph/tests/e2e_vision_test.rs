@@ -64,7 +64,7 @@ fn phase2_query_functions_by_file() {
 #[test]
 fn phase2_query_test_coverage() {
     let result = ingest_workspace(&workspace_root());
-    let nodes = result.merged_nodes_batch().expect("nodes");
+    let _nodes = result.merged_nodes_batch().expect("nodes");
     let edges = result.merged_edges_batch().expect("edges");
 
     // Count test-related edges (test_targets or tests).
@@ -136,7 +136,7 @@ fn phase5_modify_and_revert() {
         body: Some("pub fn add(a: i64, b: i64) -> i64 { a + b }".into()),
         ..Default::default()
     };
-    let nodes = build_code_nodes_batch(&[original.clone()]).expect("nodes");
+    let nodes = build_code_nodes_batch(std::slice::from_ref(&original)).expect("nodes");
 
     // Modify via graph op.
     let update = nusy_codegraph::mcp_tools::NodeUpdate {

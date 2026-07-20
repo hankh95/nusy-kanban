@@ -459,6 +459,15 @@ fn extract_check_counts(suite: &nusy_conductor::ci_runner::CiCheckSuite) -> (u32
             CheckType::Fmt => {
                 fmt_clean = check.passed;
             }
+            // The regression gate (CH-5069) has no dedicated CiResultInput count
+            // field — its pass/fail is captured in the overall `suite.passed` →
+            // CiStatus (so a regression makes `nk pr checks` show FAILED) and its
+            // per-check line is carried in the stored `summary` (surfaced by
+            // CiResultView::format_checks). Nothing to extract here.
+            CheckType::Regression => {}
+            // Provenance gate (EX-5195): no dedicated count field — captured in
+            // `suite.passed` and surfaced per-line by CiResultView::format_checks.
+            CheckType::Provenance => {}
         }
     }
 

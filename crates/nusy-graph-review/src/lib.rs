@@ -12,6 +12,7 @@ pub mod diff_view;
 pub mod experiment_bridge;
 pub mod gated_proposals;
 pub mod hdd_loop;
+pub mod id_floor;
 pub mod kanban_bridge;
 pub mod proposals;
 pub mod safety_gates;
@@ -31,11 +32,15 @@ pub use gated_proposals::{
 pub use hdd_loop::{
     CrossBoardTriple, HypothesisEvidence, accumulate_evidence, generate_cross_board_links,
 };
+pub use id_floor::{ID_FLOOR_FILE, IdFloor, git_high_water_proposals};
 pub use kanban_bridge::{
     KanbanAction, on_proposal_created, on_proposal_transition, proposal_to_kanban_id,
     safety_to_priority,
 };
-pub use proposals::{CreateProposalInput, ProposalError, ProposalStatus, ProposalStore};
+pub use proposals::{
+    CreateProposalInput, ProposalError, ProposalStatus, ProposalStore, ProposalSummary,
+    ProposalView,
+};
 pub use safety_gates::{
     ApprovalRequirement, SafetyGateError, SafetyGatesTable, YLayer, classify_change,
     classify_proposal_changes, default_gates,

@@ -142,7 +142,7 @@ pub fn export_board_index(
     }
 
     // Sort by ID number descending (newest first)
-    items.sort_by(|a, b| b.id_num.cmp(&a.id_num));
+    items.sort_by_key(|x| std::cmp::Reverse(x.id_num));
 
     // Group by item type for the header
     let type_label = item_type_filter.unwrap_or("Items");
@@ -401,7 +401,7 @@ pub fn export_board_html(
         }
     }
 
-    items.sort_by(|a, b| b.id_num.cmp(&a.id_num));
+    items.sort_by_key(|x| std::cmp::Reverse(x.id_num));
 
     // Status summary
     let mut status_counts: std::collections::HashMap<String, usize> =

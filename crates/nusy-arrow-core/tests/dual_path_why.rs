@@ -132,16 +132,11 @@ fn test_symbolic_why_path_resolves_to_paragraph() {
         subject: "nusy:Patient".to_string(),
         predicate: "nusy:recommended".to_string(),
         object: "nusy:Metformin".to_string(),
-        graph: None,
         confidence: Some(0.95),
         source_document: Some("ada-guidelines.pdf".to_string()),
         source_chunk_id: Some("chunk_cpg_001".to_string()),
         extracted_by: Some("DGX".to_string()),
-        caused_by: None,
-        derived_from: None,
-        consolidated_at: None,
-        certifiability_class: None,
-        object_datatype: None,
+        ..Default::default()
     };
 
     store
@@ -302,16 +297,11 @@ fn test_dual_path_convergence() {
         subject: "nusy:Patient".to_string(),
         predicate: "nusy:recommended".to_string(),
         object: "nusy:Metformin".to_string(),
-        graph: None,
         confidence: Some(0.95),
         source_document: Some("ada-guidelines.pdf".to_string()),
         source_chunk_id: Some("chunk_cpg_001".to_string()),
         extracted_by: Some("DGX".to_string()),
-        caused_by: None,
-        derived_from: None,
-        consolidated_at: None,
-        certifiability_class: None,
-        object_datatype: None,
+        ..Default::default()
     };
 
     store
@@ -412,16 +402,10 @@ fn test_null_source_chunk_id_fallback() {
         subject: "nusy:OldFact".to_string(),
         predicate: "rdf:type".to_string(),
         object: "nusy:Legacy".to_string(),
-        graph: None,
         confidence: Some(0.8),
         source_document: Some("old-document.md".to_string()),
-        source_chunk_id: None,
         extracted_by: Some("DGX".to_string()),
-        caused_by: None,
-        derived_from: None,
-        consolidated_at: None,
-        certifiability_class: None,
-        object_datatype: None,
+        ..Default::default()
     };
 
     store

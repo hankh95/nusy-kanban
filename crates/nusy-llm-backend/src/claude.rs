@@ -165,7 +165,22 @@ impl ClaudeBackend {
 impl LlmClient for ClaudeBackend {
     async fn complete(&self, prompt: &str, params: &LlmParams) -> Result<String> {
         let request = self.build_request(prompt, params);
-        let response = self.send_request(&request).await?;
+        // CH-5732: newer Anthropic models (e.g. claude-sonnet-5) REJECT the `temperature`
+        // parameter — "400 temperature is deprecated for this model" — which broke being
+        // creation (blueprint pipeline) on every Claude-API agent. Retry ONCE with
+        // temperature omitted: additive (preserves temperature for models that accept it,
+        // self-heals for those that don't), zero behavior change for a call that succeeds.
+        let response = match self.send_request(&request).await {
+            Err(LlmError::Api {
+                status: 400,
+                message,
+            }) if message.to_lowercase().contains("temperature") => {
+                let mut retry = self.build_request(prompt, params);
+                retry.temperature = None;
+                self.send_request(&retry).await?
+            }
+            result => result?,
+        };
         Self::check_truncation(&response, request.max_tokens)?;
         Self::extract_text(&response)
     }
@@ -471,5 +486,42 @@ mod tests {
         assert!(!json.contains("stop_sequences"));
         assert!(!json.contains("stream")); // false → skipped
         assert!(json.contains("\"model\":\"model\""));
+    }
+
+    /// CH-5732: newer Anthropic models reject `temperature` (HTTP 400 "temperature is
+    /// deprecated for this model") — which broke being creation on every Claude-API agent.
+    /// `complete` must retry ONCE with `temperature` omitted and then succeed. This is the
+    /// regression guard for the retry path (also validated live via `factory create`).
+    #[tokio::test]
+    async fn ch5732_retries_without_temperature_on_400_deprecation() {
+        use wiremock::matchers::{body_string_contains, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        // The first request still carries `temperature` → 400 deprecation.
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .and(body_string_contains("temperature"))
+            .respond_with(ResponseTemplate::new(400).set_body_string(
+                r#"{"type":"error","error":{"type":"invalid_request_error","message":"temperature is deprecated for this model"}}"#,
+            ))
+            .mount(&server)
+            .await;
+        // The retry omits `temperature` (skip_serializing_if none) → matches only this mock → 200.
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(
+                r#"{"content":[{"type":"text","text":"ok"}],"model":"claude-sonnet-5","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}"#,
+            ))
+            .mount(&server)
+            .await;
+
+        let backend = ClaudeBackend::with_config("claude-sonnet-5", "test-key", server.uri());
+        let params = LlmParams::default().with_temperature(0.3);
+        let out = backend
+            .complete("hi", &params)
+            .await
+            .expect("retry-without-temperature must succeed on the deprecation 400");
+        assert_eq!(out, "ok");
     }
 }

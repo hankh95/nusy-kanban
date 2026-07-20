@@ -166,16 +166,10 @@ impl KgStore {
             subject: self.expand_uri(subject),
             predicate: self.expand_uri(predicate),
             object: self.expand_uri(object),
-            graph: None,
             confidence: Some(confidence),
             source_document: source.map(|s| s.to_string()),
-            source_chunk_id: None,
             extracted_by: source.map(|s| s.to_string()),
-            caused_by: None,
-            derived_from: None,
-            consolidated_at: None,
-            certifiability_class: None,
-            object_datatype: None,
+            ..Default::default()
         };
         self.inner
             .add_triple(&triple, self.default_namespace, self.default_y_layer)
@@ -193,16 +187,10 @@ impl KgStore {
                 subject: self.expand_uri(s),
                 predicate: self.expand_uri(p),
                 object: self.expand_uri(o),
-                graph: None,
                 confidence: Some(*conf),
                 source_document: source.map(|s| s.to_string()),
-                source_chunk_id: None,
                 extracted_by: source.map(|s| s.to_string()),
-                caused_by: None,
-                derived_from: None,
-                consolidated_at: None,
-                certifiability_class: None,
-                object_datatype: None,
+                ..Default::default()
             })
             .collect();
         self.inner

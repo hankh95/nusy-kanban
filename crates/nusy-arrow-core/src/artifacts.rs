@@ -19,7 +19,6 @@
 //! own schema version for future read-path migration.
 
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -31,211 +30,8 @@ use crate::schema::{
     artifact_dep_col, artifact_dependencies_schema, knowledge_artifacts_schema,
 };
 
-/// Lifecycle state of a knowledge artifact. FHIR's `unknown` is never stored — it is
-/// rejected or mapped at the import boundary, so this enum has exactly three states.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ArtifactStatus {
-    /// Editable; not yet published. Content may still change in place.
-    Draft,
-    /// Published and frozen (CRMI immutability). A change requires a new version.
-    Active,
-    /// Withdrawn. Terminal.
-    Retired,
-}
-
-impl ArtifactStatus {
-    /// The stored string form.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ArtifactStatus::Draft => "draft",
-            ArtifactStatus::Active => "active",
-            ArtifactStatus::Retired => "retired",
-        }
-    }
-
-    /// Parse a stored status. `unknown` (and anything else) is rejected — only the three
-    /// canonical states are valid in the store.
-    pub fn parse(s: &str) -> Result<Self, ArtifactError> {
-        match s {
-            "draft" => Ok(ArtifactStatus::Draft),
-            "active" => Ok(ArtifactStatus::Active),
-            "retired" => Ok(ArtifactStatus::Retired),
-            other => Err(ArtifactError::InvalidStatus(other.to_string())),
-        }
-    }
-}
-
-/// A `Major.Minor.Revision` business version (CRMI semantics).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Version {
-    /// Breaking change.
-    pub major: u32,
-    /// Backwards-compatible addition.
-    pub minor: u32,
-    /// Fix / editorial revision.
-    pub revision: u32,
-}
-
-impl Version {
-    /// Construct a version.
-    pub fn new(major: u32, minor: u32, revision: u32) -> Self {
-        Self {
-            major,
-            minor,
-            revision,
-        }
-    }
-
-    /// Parse `"M.m.r"`.
-    pub fn parse(s: &str) -> Result<Self, ArtifactError> {
-        let parts: Vec<&str> = s.split('.').collect();
-        if parts.len() != 3 {
-            return Err(ArtifactError::InvalidVersion(s.to_string()));
-        }
-        let p = |x: &str| {
-            x.parse::<u32>()
-                .map_err(|_| ArtifactError::InvalidVersion(s.to_string()))
-        };
-        Ok(Version::new(p(parts[0])?, p(parts[1])?, p(parts[2])?))
-    }
-}
-
-impl fmt::Display for Version {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}.{}.{}", self.major, self.minor, self.revision)
-    }
-}
-
-/// The kind of a dependency edge between artifacts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DepType {
-    /// `from` needs `to` to function (the manifest closure follows these).
-    DependsOn,
-    /// `from` is assembled out of `to` (a bundle/part-of relation).
-    ComposedOf,
-    /// `from` was produced from `to` (lineage).
-    DerivedFrom,
-}
-
-impl DepType {
-    /// The stored string form.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            DepType::DependsOn => "depends-on",
-            DepType::ComposedOf => "composed-of",
-            DepType::DerivedFrom => "derived-from",
-        }
-    }
-
-    /// Parse a stored dependency type.
-    pub fn parse(s: &str) -> Result<Self, ArtifactError> {
-        match s {
-            "depends-on" => Ok(DepType::DependsOn),
-            "composed-of" => Ok(DepType::ComposedOf),
-            "derived-from" => Ok(DepType::DerivedFrom),
-            other => Err(ArtifactError::InvalidDepType(other.to_string())),
-        }
-    }
-}
-
-/// One versioned knowledge artifact (a row of the KnowledgeArtifacts table).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KnowledgeArtifact {
-    /// Stable business identity across versions.
-    pub artifact_id: String,
-    /// Generic kind: `rule-set` | `decision-graph` | `ontology` | … (never clinical).
-    pub artifact_type: String,
-    /// Business version.
-    pub version: Version,
-    /// Lifecycle state.
-    pub status: ArtifactStatus,
-    /// Stable URL identity; with `version` forms the named-graph handle.
-    pub canonical_url: String,
-    /// Owning agent / org.
-    pub steward: String,
-    /// Last-changed timestamp (epoch millis, UTC).
-    pub date: i64,
-    /// Applicability window start (epoch millis), if any.
-    pub effective_start: Option<i64>,
-    /// Applicability window end (epoch millis), if any.
-    pub effective_end: Option<i64>,
-    /// The `artifact_id` this version replaces, if any (the supersession edge).
-    pub supersedes: Option<String>,
-}
-
-impl KnowledgeArtifact {
-    /// The named-graph handle that ties this artifact to its triples in the graph store's
-    /// `graph` column: `canonical_url|version`.
-    pub fn named_graph(&self) -> String {
-        format!("{}|{}", self.canonical_url, self.version)
-    }
-
-    /// `(artifact_id, version)` — the manifest pin key.
-    fn key(&self) -> (String, Version) {
-        (self.artifact_id.clone(), self.version)
-    }
-}
-
-/// Errors from artifact lifecycle / manifest operations.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ArtifactError {
-    /// A `(artifact_id, version)` pair already exists.
-    Duplicate(String, Version),
-    /// No artifact for the given `(artifact_id, version)`.
-    NotFound(String, Version),
-    /// An illegal lifecycle transition was attempted (e.g. retired → active).
-    IllegalTransition {
-        from: ArtifactStatus,
-        to: ArtifactStatus,
-    },
-    /// An attempt to mutate an `active` (frozen) artifact in place.
-    ImmutableActive(String, Version),
-    /// A dependency cycle was detected during manifest construction.
-    DependencyCycle(String),
-    /// A status string outside {draft, active, retired}.
-    InvalidStatus(String),
-    /// A malformed `Major.Minor.Revision` version string.
-    InvalidVersion(String),
-    /// A dependency type outside {depends-on, composed-of, derived-from}.
-    InvalidDepType(String),
-    /// A schema/decoding error reading a RecordBatch.
-    Decode(String),
-}
-
-impl fmt::Display for ArtifactError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ArtifactError::Duplicate(id, v) => write!(f, "artifact {id}@{v} already exists"),
-            ArtifactError::NotFound(id, v) => write!(f, "artifact {id}@{v} not found"),
-            ArtifactError::IllegalTransition { from, to } => {
-                write!(
-                    f,
-                    "illegal lifecycle transition {} → {}",
-                    from.as_str(),
-                    to.as_str()
-                )
-            }
-            ArtifactError::ImmutableActive(id, v) => {
-                write!(
-                    f,
-                    "artifact {id}@{v} is active (frozen); a change needs a new version + supersedes edge"
-                )
-            }
-            ArtifactError::DependencyCycle(at) => write!(f, "dependency cycle through {at}"),
-            ArtifactError::InvalidStatus(s) => write!(
-                f,
-                "invalid artifact status `{s}` (expected draft|active|retired)"
-            ),
-            ArtifactError::InvalidVersion(s) => {
-                write!(f, "invalid version `{s}` (expected Major.Minor.Revision)")
-            }
-            ArtifactError::InvalidDepType(s) => write!(f, "invalid dependency type `{s}`"),
-            ArtifactError::Decode(s) => write!(f, "artifact table decode error: {s}"),
-        }
-    }
-}
-
-impl std::error::Error for ArtifactError {}
+// Pure-data types live in nusy-artifact-types (arrow-free); re-export for backwards compat.
+pub use nusy_artifact_types::{ArtifactError, ArtifactStatus, DepType, KnowledgeArtifact, Version};
 
 /// A typed dependency edge, version-pinned on the `from` side.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -274,7 +70,7 @@ impl ArtifactStore {
     /// `Draft` regardless of the value passed in. Errors if `(artifact_id, version)` exists.
     pub fn create(&mut self, mut artifact: KnowledgeArtifact) -> Result<(), ArtifactError> {
         artifact.status = ArtifactStatus::Draft;
-        let key = artifact.key();
+        let key = (artifact.artifact_id.clone(), artifact.version);
         if self.artifacts.contains_key(&key) {
             return Err(ArtifactError::Duplicate(key.0, key.1));
         }
@@ -285,6 +81,39 @@ impl ArtifactStore {
     /// Look up an artifact version.
     pub fn get(&self, artifact_id: &str, version: Version) -> Option<&KnowledgeArtifact> {
         self.artifacts.get(&(artifact_id.to_string(), version))
+    }
+
+    /// Lifecycle axis (CH-4687): all artifacts in `status`, ordered by
+    /// `(artifact_id, version)` for deterministic iteration.
+    pub fn by_status(&self, status: ArtifactStatus) -> Vec<&KnowledgeArtifact> {
+        let mut out: Vec<&KnowledgeArtifact> = self
+            .artifacts
+            .values()
+            .filter(|a| a.status == status)
+            .collect();
+        out.sort_by(|a, b| (&a.artifact_id, a.version).cmp(&(&b.artifact_id, b.version)));
+        out
+    }
+
+    /// Lifecycle axis (CH-4687): every version of `artifact_id`, version-ascending.
+    pub fn versions(&self, artifact_id: &str) -> Vec<&KnowledgeArtifact> {
+        let mut out: Vec<&KnowledgeArtifact> = self
+            .artifacts
+            .values()
+            .filter(|a| a.artifact_id == artifact_id)
+            .collect();
+        out.sort_by_key(|a| a.version);
+        out
+    }
+
+    /// Lifecycle axis (CH-4687): the current `active` version of `artifact_id` —
+    /// the highest active version, if any. (Lifecycle enforcement does not forbid
+    /// two active versions of one artifact; "current" is the newest.)
+    pub fn active_version(&self, artifact_id: &str) -> Option<&KnowledgeArtifact> {
+        self.artifacts
+            .values()
+            .filter(|a| a.artifact_id == artifact_id && a.status == ArtifactStatus::Active)
+            .max_by_key(|a| a.version)
     }
 
     fn transition(
@@ -566,7 +395,8 @@ impl ArtifactStore {
                 supersedes: (!sup.is_null(i)).then(|| sup.value(i).to_string()),
             };
             // Insert directly (bypass create()'s draft-forcing — we are reloading state).
-            store.artifacts.insert(artifact.key(), artifact);
+            let key = (artifact.artifact_id.clone(), artifact.version);
+            store.artifacts.insert(key, artifact);
         }
 
         let from = col(dependencies, artifact_dep_col::FROM_ARTIFACT)?;
@@ -674,6 +504,56 @@ mod tests {
             effective_end: None,
             supersedes: None,
         }
+    }
+
+    #[test]
+    fn lifecycle_queries_by_status_versions_and_active() {
+        let mut s = ArtifactStore::new();
+        // jnc8: v1 active, v2 active (newer), v3 draft.
+        s.create(art("jnc8", Version::new(1, 0, 0))).unwrap();
+        s.activate("jnc8", Version::new(1, 0, 0)).unwrap();
+        s.create(art("jnc8", Version::new(2, 0, 0))).unwrap();
+        s.activate("jnc8", Version::new(2, 0, 0)).unwrap();
+        s.create(art("jnc8", Version::new(3, 0, 0))).unwrap();
+        // anc: one retired version.
+        s.create(art("anc", Version::new(1, 0, 0))).unwrap();
+        s.activate("anc", Version::new(1, 0, 0)).unwrap();
+        s.retire("anc", Version::new(1, 0, 0)).unwrap();
+
+        // by_status: deterministic (artifact_id, version) order.
+        let active = s.by_status(ArtifactStatus::Active);
+        let keys: Vec<(&str, Version)> = active
+            .iter()
+            .map(|a| (a.artifact_id.as_str(), a.version))
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                ("jnc8", Version::new(1, 0, 0)),
+                ("jnc8", Version::new(2, 0, 0)),
+            ]
+        );
+        assert_eq!(s.by_status(ArtifactStatus::Draft).len(), 1);
+        assert_eq!(s.by_status(ArtifactStatus::Retired).len(), 1);
+
+        // versions: ascending, all statuses.
+        let vs: Vec<Version> = s.versions("jnc8").iter().map(|a| a.version).collect();
+        assert_eq!(
+            vs,
+            vec![
+                Version::new(1, 0, 0),
+                Version::new(2, 0, 0),
+                Version::new(3, 0, 0)
+            ]
+        );
+
+        // active_version: the highest ACTIVE version, not the draft v3.
+        assert_eq!(
+            s.active_version("jnc8").unwrap().version,
+            Version::new(2, 0, 0)
+        );
+        assert!(s.active_version("anc").is_none()); // retired ≠ active
+        assert!(s.active_version("nope").is_none());
     }
 
     #[test]

@@ -687,12 +687,17 @@ pub fn measure_dep_aware_stability(
             }
         }
 
-        let crate_clean = total_crates - directly_dirty.len();
+        // CH-5095: saturating — `directly_dirty`/`all_dirty` are built from real git-history
+        // file paths and can include crates outside the hardcoded `nusy_workspace()` map (34 of
+        // the workspace's 89 crates), so the count may exceed `total_crates`. A plain `-` would
+        // underflow-panic; saturate to 0 instead. (The stale map makes this metric a degraded
+        // lower bound — deriving CrateDeps from Cargo.toml is the deeper follow-up in CH-5095.)
+        let crate_clean = total_crates.saturating_sub(directly_dirty.len());
         let crate_hit_rate = crate_clean as f64 / total_crates as f64;
 
         // Dependency-aware: propagate dirtiness transitively
         let all_dirty = crate_deps.transitive_dirty(&directly_dirty);
-        let dep_clean = total_crates - all_dirty.len();
+        let dep_clean = total_crates.saturating_sub(all_dirty.len());
         let dep_aware_hit_rate = dep_clean as f64 / total_crates as f64;
 
         measurements.push(DepAwareMeasurement {

@@ -4296,6 +4296,7 @@ version = "0.15.4"
 dependencies = [
  "arrow",
  "chrono",
+ "nusy-artifact-types",
  "parquet",
  "serde",
  "tempfile",
@@ -4322,6 +4323,10 @@ dependencies = [
  "url",
  "uuid",
 ]
+
+[[package]]
+name = "nusy-artifact-types"
+version = "0.15.4"
 
 [[package]]
 name = "nusy-codegraph"
@@ -4495,6 +4500,7 @@ dependencies = [
 name = "nusy-llm-backend"
 version = "0.15.4"
 dependencies = [
+ "futures",
  "reqwest",
  "serde",
  "serde_json",

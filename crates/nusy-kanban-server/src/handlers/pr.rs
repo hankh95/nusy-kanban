@@ -27,6 +27,7 @@ struct PrCreateRequest {
 pub(crate) fn handle_pr_create(
     payload: &[u8],
     proposals: &mut ProposalStore,
+    data_dir: &std::path::Path,
 ) -> Result<Vec<u8>, Vec<u8>> {
     let req: PrCreateRequest = parse_payload(payload)?;
     let source = req.source_branch.as_deref().unwrap_or("unknown");
@@ -43,9 +44,38 @@ pub(crate) fn handle_pr_create(
         namespace: "work",
     };
 
+    // CH-6058 / SG-6057: allocate above the durable high-water floor, not just
+    // above what this (possibly rolled-back) store happens to contain.
+    //
+    // The floor lives NEXT TO THE PARQUET (<root>/.nusy-kanban), not at the
+    // data root — it has to travel with the store it protects, or a restore
+    // that replaces the store would leave a floor describing different data.
+    let store_dir =
+        nusy_kanban::persist::data_dir(data_dir).unwrap_or_else(|_| data_dir.to_path_buf());
+    let mut floor = nusy_graph_review::IdFloor::load(&store_dir);
+    // Git is the one record a store rollback cannot touch: merge subjects carry
+    // "Merge PROP-<n>". Local history only — no fetch, no network.
+    if let Some(git_max) = nusy_graph_review::git_high_water_proposals(data_dir) {
+        floor.raise_proposals(git_max);
+    }
+
     let id = proposals
-        .create_proposal(&input)
+        .create_proposal_with_floor(&input, floor.proposals)
         .map_err(|e| error_response(&format!("{e}"), "PR_CREATE_FAILED"))?;
+
+    // Record the id as handed out BEFORE returning it, so a crash between here
+    // and the next save cannot hand the same id out twice.
+    if let Some(n) = id
+        .strip_prefix("PROP-")
+        .and_then(|s| s.parse::<usize>().ok())
+    {
+        floor.raise_proposals(n);
+        if let Err(e) = floor.save(&store_dir) {
+            eprintln!(
+                "kanban: warning — could not persist id floor ({e}); a rollback could re-mint {id}"
+            );
+        }
+    }
     proposals
         .open_proposal(&id)
         .map_err(|e| error_response(&format!("{e}"), "PR_OPEN_FAILED"))?;

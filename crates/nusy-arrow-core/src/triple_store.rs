@@ -44,6 +44,9 @@ pub struct StoredTriple {
     pub graph: Option<String>,
     pub confidence: f64,
     pub source: Option<String>,
+    /// EX-5021: salience/importance score in `[0,1]` (None = unscored). Read-only here —
+    /// set only by the governed dream write-back; retrieval ranks by it, provability ignores it.
+    pub salience: Option<f64>,
 }
 
 /// Statistics about the store.
@@ -98,16 +101,10 @@ impl SimpleTripleStore {
             subject: subject.to_string(),
             predicate: predicate.to_string(),
             object: object.to_string(),
-            graph: None,
             confidence: Some(confidence),
             source_document: Some(source.to_string()),
-            source_chunk_id: None,
             extracted_by: Some(source.to_string()),
-            caused_by: None,
-            derived_from: None,
-            consolidated_at: None,
-            certifiability_class: None,
-            object_datatype: None,
+            ..Default::default()
         };
         self.inner.add_triple(&triple, self.namespace, self.y_layer)
     }
@@ -123,16 +120,10 @@ impl SimpleTripleStore {
                 subject: s.to_string(),
                 predicate: p.to_string(),
                 object: o.to_string(),
-                graph: None,
                 confidence: Some(*conf),
                 source_document: Some(src.to_string()),
-                source_chunk_id: None,
                 extracted_by: Some(src.to_string()),
-                caused_by: None,
-                derived_from: None,
-                consolidated_at: None,
-                certifiability_class: None,
-                object_datatype: None,
+                ..Default::default()
             })
             .collect();
         self.inner.add_batch(&ts, self.namespace, self.y_layer)
@@ -213,13 +204,8 @@ impl SimpleTripleStore {
             graph: existing.graph,
             confidence: Some(confidence),
             source_document: existing.source.clone(),
-            source_chunk_id: None,
             extracted_by: existing.source,
-            caused_by: None,
-            derived_from: None,
-            consolidated_at: None,
-            certifiability_class: None,
-            object_datatype: None,
+            ..Default::default()
         };
         self.inner
             .add_triple(&triple, self.namespace, self.y_layer)?;
@@ -356,6 +342,12 @@ pub fn extract_stored_triple(batch: &RecordBatch, idx: usize) -> StoredTriple {
         .as_any()
         .downcast_ref::<StringArray>()
         .expect("extracted_by column");
+    // EX-5021: salience is a late-added column; tolerate older batches that predate it
+    // (read-path migration — a short batch reads as `None`, never panics).
+    let salience = batch
+        .columns()
+        .get(col::SALIENCE)
+        .and_then(|c| c.as_any().downcast_ref::<Float64Array>());
 
     StoredTriple {
         id: ids.value(idx).to_string(),
@@ -377,6 +369,7 @@ pub fn extract_stored_triple(batch: &RecordBatch, idx: usize) -> StoredTriple {
         } else {
             Some(sources.value(idx).to_string())
         },
+        salience: salience.and_then(|s| (!s.is_null(idx)).then(|| s.value(idx))),
     }
 }
 

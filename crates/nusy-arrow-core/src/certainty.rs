@@ -104,6 +104,33 @@ pub fn from_record_batch(batch: &RecordBatch) -> io::Result<Vec<Certainty>> {
         .collect())
 }
 
+/// Provenness axis (CH-4687): the ratings attached to one knowledge artifact, in
+/// input order. First-class evidence-grade lookup over a loaded certainty table.
+pub fn for_artifact<'a>(ratings: &'a [Certainty], artifact_id: &str) -> Vec<&'a Certainty> {
+    ratings
+        .iter()
+        .filter(|c| c.artifact_id == artifact_id)
+        .collect()
+}
+
+/// Provenness axis (CH-4687): the **top-level** (parentless) rating of
+/// `certainty_type` for `artifact_id` under `rating_system` — e.g. the artifact's
+/// overall GRADE. Sub-component ratings (with a `parent_certainty_id`) are not
+/// top-level grades and never match.
+pub fn top_level_rating<'a>(
+    ratings: &'a [Certainty],
+    artifact_id: &str,
+    certainty_type: &str,
+    rating_system: &str,
+) -> Option<&'a Certainty> {
+    ratings.iter().find(|c| {
+        c.artifact_id == artifact_id
+            && c.certainty_type == certainty_type
+            && c.rating_system == rating_system
+            && c.parent_certainty_id.is_none()
+    })
+}
+
 /// Atomically persist certainty ratings to a Parquet file.
 pub fn write_parquet(ratings: &[Certainty], path: &Path) -> io::Result<()> {
     let batch = to_record_batch(ratings);
@@ -181,6 +208,31 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[test]
+    fn evidence_grade_lookups_are_first_class() {
+        let mut other_artifact = overall();
+        other_artifact.certainty_id = "c-other".into();
+        other_artifact.artifact_id = "art-2".into();
+        let ratings = vec![
+            overall(),                           // art-1 Overall GRADE, top-level
+            sub("c-rob", "RiskOfBias", "GRADE"), // art-1 sub-component
+            other_artifact,                      // art-2
+        ];
+
+        // for_artifact: only art-1's ratings, in input order.
+        let art1 = for_artifact(&ratings, "art-1");
+        assert_eq!(art1.len(), 2);
+        assert_eq!(art1[0].certainty_id, "c-overall");
+
+        // top_level_rating: the parentless Overall under GRADE…
+        let top = top_level_rating(&ratings, "art-1", "Overall", "GRADE").unwrap();
+        assert_eq!(top.rating, "high");
+        // …sub-components never match, even with the right type+system…
+        assert!(top_level_rating(&ratings, "art-1", "RiskOfBias", "GRADE").is_none());
+        // …and a different rating system finds nothing.
+        assert!(top_level_rating(&ratings, "art-1", "Overall", "OxfordCEBM").is_none());
     }
 
     #[test]
