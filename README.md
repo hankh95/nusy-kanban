@@ -1,3 +1,11 @@
+> **⚠ Development has moved in-house (2026-07-22).**
+> This public mirror is **archived**. `nusy-kanban` is now developed and released
+> exclusively inside the NuSy monorepo (it is not a standalone leaf crate — it
+> depends on the monorepo's Arrow substrate). The published crates.io versions
+> remain available and licensed (MIT) but are **no longer updated**.
+>
+> Looking for a FOSS kanban of this family? See **yurtle-kanban**.
+
 > **Mirror notice.** This repository is the official public distribution of
 > `nusy-kanban` + `nusy-kanban-server`, exported from the private NuSy monorepo
 > by `scripts/sync-foss-mirrors.sh`. It is a complete, standalone-buildable
