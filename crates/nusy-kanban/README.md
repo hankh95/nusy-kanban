@@ -49,7 +49,7 @@ nk move EX-3001 in_progress --assign "dev"
 Point all agents at a shared NATS server for single-writer semantics:
 
 ```bash
-alias nk='nusy-kanban --server nats://192.168.8.110:4222'
+alias nk='nusy-kanban --server nats://<bus-host>:4222'
 nk create expedition "Team Feature" --push
 ```
 
@@ -372,8 +372,8 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ### NATS Connection Failures
 
 **`Connection refused` when using `--server nats://...`**
-- Verify the NATS server is running: `nc -zv 192.168.8.110 4222`
-- Check server uptime on Mini: `ssh mini@192.168.8.110 uptime`
+- Verify the NATS server is running: `nc -zv <bus-host> 4222`
+- Check server uptime on Mini: `ssh <user>@<mini> uptime`
 - Fall back to local mode (omit `--server` flag) — reads/writes `.nusy-kanban/` locally
 
 **`Request timed out`**
@@ -390,7 +390,7 @@ When upgrading, Parquet files are auto-normalized:
 
 | Flag | Behavior |
 |------|----------|
-| `--server nats://192.168.8.110:4222` | Single-writer to NATS-backed Arrow store on Mini |
+| `--server nats://<bus-host>:4222` | Single-writer to NATS-backed Arrow store on Mini |
 | (none) | Local mode — reads/writes `.nusy-kanban/*.parquet` in current directory |
 
 **Important:** Do not run two local-mode processes on the same directory simultaneously — Parquet writes are not atomic across files.

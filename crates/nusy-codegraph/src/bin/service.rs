@@ -9,7 +9,7 @@
 //! # Usage
 //!
 //! ```bash
-//! nusy-codegraph-service --graph-dir .codegraph --workspace . --nats-url nats://192.168.8.110:4222
+//! nusy-codegraph-service --graph-dir .codegraph --workspace . --nats-url nats://<bus-host>:4222
 //! ```
 
 use clap::Parser;

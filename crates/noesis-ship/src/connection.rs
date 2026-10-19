@@ -211,8 +211,8 @@ mod tests {
 
     #[test]
     fn config_accessible() {
-        let config = NatsConfig::new("nats://192.168.8.110:4222");
+        let config = NatsConfig::new("nats://bus-host:4222");
         let conn = ConnectionManager::new(config);
-        assert_eq!(conn.config().url, "nats://192.168.8.110:4222");
+        assert_eq!(conn.config().url, "nats://bus-host:4222");
     }
 }

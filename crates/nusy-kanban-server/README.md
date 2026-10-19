@@ -22,7 +22,7 @@ cargo install nusy-kanban-server
 nusy-kanban-server
 
 # With custom NATS URL and data directory
-nusy-kanban-server --nats-url nats://192.168.1.100:4222 --data-dir /path/to/project
+nusy-kanban-server --nats-url nats://<bus-host>:4222 --data-dir /path/to/project
 ```
 
 ## Architecture

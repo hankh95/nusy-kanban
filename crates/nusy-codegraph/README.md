@@ -141,10 +141,10 @@ nusy-codegraph-ingest ./path/to/project --language rust
 nusy-codegraph-query "query_objects: semantic_search_term"
 
 # Start service mode (NATS)
-nusy-codegraph-service --nats nats://192.168.8.110:4222
+nusy-codegraph-service --nats nats://<bus-host>:4222
 
 # MCP bridge for AI agent integration
-nusy-mcp-bridge --nats nats://192.168.8.110:4222
+nusy-mcp-bridge --nats nats://<bus-host>:4222
 ```
 
 ### As a Library

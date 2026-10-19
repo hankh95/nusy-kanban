@@ -35,7 +35,7 @@
     <key>ProgramArguments</key>
     <array>
         <!-- nusy-kanban binary (cargo install --path crates/nusy-kanban) -->
-        <string>/Users/hankh19/.cargo/bin/nusy-kanban</string>
+        <string>&lt;home&gt;/.cargo/bin/nusy-kanban</string>
         <string>--server</string>
         <string>nats://localhost:4222</string>
         <string>backup</string>
@@ -43,14 +43,14 @@
 
     <!-- Working directory: project root (nusy-kanban looks for .nusy-kanban/) -->
     <key>WorkingDirectory</key>
-    <string>/Users/hankh19/Projects/nusy-product-team</string>
+    <string>&lt;home&gt;/Projects/nusy-product-team</string>
 
     <!-- Log output -->
     <key>StandardOutPath</key>
-    <string>/Users/hankh19/Library/Logs/nusy-kanban-backup.log</string>
+    <string>&lt;home&gt;/Library/Logs/nusy-kanban-backup.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/hankh19/Library/Logs/nusy-kanban-backup.err</string>
+    <string>&lt;home&gt;/Library/Logs/nusy-kanban-backup.err</string>
 
     <!--
       Do NOT use KeepAlive — this is a scheduled task, not a long-running server.

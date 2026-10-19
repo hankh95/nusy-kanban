@@ -27,7 +27,7 @@
 //! # Binary
 //!
 //! ```bash
-//! nusy-mcp-bridge --nats nats://192.168.8.110:4222 --services codegraph
+//! nusy-mcp-bridge --nats nats://<bus-host>:4222 --services codegraph
 //! ```
 
 use serde_json::Value;
