@@ -6,7 +6,7 @@
 //! # Usage
 //!
 //! ```bash
-//! nusy-mcp-bridge --nats nats://192.168.8.110:4222 --services codegraph
+//! nusy-mcp-bridge --nats nats://<bus-host>:4222 --services codegraph
 //! ```
 //!
 //! # Claude Code settings.json
@@ -16,7 +16,7 @@
 //!   "mcpServers": {
 //!     "nusy-code": {
 //!       "command": "nusy-mcp-bridge",
-//!       "args": ["--nats", "nats://192.168.8.110:4222", "--services", "codegraph"]
+//!       "args": ["--nats", "nats://<bus-host>:4222", "--services", "codegraph"]
 //!     }
 //!   }
 //! }

@@ -250,9 +250,15 @@ pub fn resolve_cargo_path(explicit: Option<&Path>) -> PathBuf {
             return candidate;
         }
     }
+    // Try $CARGO_HOME/bin/cargo (set it when the service runs without $HOME)
+    if let Ok(cargo_home) = std::env::var("CARGO_HOME") {
+        let candidate = PathBuf::from(format!("{cargo_home}/bin/cargo"));
+        if candidate.exists() {
+            return candidate;
+        }
+    }
     // Try well-known macOS paths
     for path in &[
-        "/Users/hankh19/.cargo/bin/cargo",
         "/opt/homebrew/bin/cargo",
         "/usr/local/bin/cargo",
     ] {

@@ -531,8 +531,8 @@ mod tests {
 
     #[test]
     fn nats_config_custom_url() {
-        let config = NatsConfig::new("nats://192.168.8.110:4222");
-        assert_eq!(config.url, "nats://192.168.8.110:4222");
+        let config = NatsConfig::new("nats://bus-host:4222");
+        assert_eq!(config.url, "nats://bus-host:4222");
     }
 
     #[test]
@@ -631,7 +631,7 @@ mod tests {
     #[test]
     fn nats_config_defaults_to_plaintext() {
         // EX-4986: the non-PHI fleet bus default is unchanged — no TLS.
-        let cfg = NatsConfig::new("nats://192.168.8.110:4222");
+        let cfg = NatsConfig::new("nats://bus-host:4222");
         assert!(!cfg.is_mtls());
         assert!(cfg.tls.is_none());
     }

@@ -7,7 +7,7 @@ hazards, signals, and HDD research items across dual boards (development + resea
 
 ```bash
 # Required alias — all agents must set this at session start
-alias nk='nusy-kanban --server nats://192.168.8.110:4222'
+alias nk='nusy-kanban --server nats://<bus-host>:4222'
 ```
 
 The `--server` flag connects to the nusy-kanban-server running on Mini, which
@@ -26,7 +26,7 @@ These flags apply to every command and must appear before the subcommand.
 ```bash
 # Examples
 nk --root /path/to/project board
-nusy-kanban --server nats://192.168.8.110:4222 list
+nusy-kanban --server nats://<bus-host>:4222 list
 ```
 
 ---

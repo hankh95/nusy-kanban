@@ -23,7 +23,7 @@ nk move $ARGUMENTS in_progress --assign "$AGENT_NAME"
 
 If `nk` alias is not set, use the full command:
 ```bash
-nusy-kanban --server nats://192.168.8.110:4222 move $ARGUMENTS in_progress --assign "$AGENT_NAME"
+nusy-kanban --server nats://<bus-host>:4222 move $ARGUMENTS in_progress --assign "$AGENT_NAME"
 ```
 
 ### 2. Read the item

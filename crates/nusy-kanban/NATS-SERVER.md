@@ -2,7 +2,7 @@
 
 The nusy-kanban-server binary runs on Mini (Mac Mini M4) and serves all kanban
 commands via NATS request-reply. All agents (M5, DGX, Mini) connect to it via
-`--server nats://192.168.8.110:4222`.
+`--server nats://<bus-host>:4222`.
 
 ## 1. Architecture Overview
 
@@ -11,7 +11,7 @@ commands via NATS request-reply. All agents (M5, DGX, Mini) connect to it via
 │   Mini   │  │    M5    │  │   DGX    │
 │ (server) │  │ (client) │  │ (client) │
 └────┬─────┘  └────┬─────┘  └────┬─────┘
-     │    NATS (192.168.8.110:4222)  │
+     │    NATS (<bus-host>:4222)  │
      ├─────────────┼────────────────┤
 ┌────▼─────────────▼────────────────▼────┐
 │    nusy-kanban-server (Mini:4222)      │
@@ -71,9 +71,9 @@ Create the plist file at `~/Library/LaunchAgents/com.nusy.kanban-server.plist`:
     <string>com.nusy.kanban-server</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/hankh19/.cargo/bin/nusy-kanban-server</string>
+        <string><home>/.cargo/bin/nusy-kanban-server</string>
         <string>--data-dir</string>
-        <string>/Users/hankh19/Projects/nusy-product-team</string>
+        <string><home>/Projects/nusy-product-team</string>
         <string>--nats-url</string>
         <string>nats://localhost:4222</string>
     </array>
@@ -125,7 +125,7 @@ sudo systemctl start nusy-kanban-server
 Add the following alias to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.):
 
 ```bash
-alias nk='nusy-kanban --server nats://192.168.8.110:4222'
+alias nk='nusy-kanban --server nats://<bus-host>:4222'
 ```
 
 Reload your shell and verify connectivity:
@@ -134,7 +134,7 @@ Reload your shell and verify connectivity:
 nk board
 ```
 
-All agents (M5, DGX, Mini) use this same alias. The IP `192.168.8.110` is Mini's
+All agents (M5, DGX, Mini) use this same alias. The host `<bus-host>` is Mini's
 LAN address where the NATS server and nusy-kanban-server run.
 
 ## 4. NATS Subjects
@@ -249,7 +249,7 @@ Create `~/Library/LaunchAgents/com.nusy.kanban-snapshot.plist`:
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>cd /Users/hankh19/Projects/nusy-product-team &amp;&amp; git add .nusy-kanban/*.parquet &amp;&amp; git commit -m "chore: nightly kanban snapshot" &amp;&amp; git push origin main</string>
+        <string>cd <home>/Projects/nusy-product-team &amp;&amp; git add .nusy-kanban/*.parquet &amp;&amp; git commit -m "chore: nightly kanban snapshot" &amp;&amp; git push origin main</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>

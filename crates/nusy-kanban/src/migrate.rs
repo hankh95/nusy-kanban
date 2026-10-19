@@ -1115,13 +1115,13 @@ Some body content here.
 <> kb:statusChange [
     kb:status kb:in_progress ;
     kb:at "2026-03-04T07:03:19"^^xsd:dateTime ;
-    kb:by "hankh1844" ;
+    kb:by "test-agent" ;
     kb:forcedMove "true"^^xsd:boolean ;
   ],
   [
     kb:status kb:done ;
     kb:at "2026-03-04T12:06:40"^^xsd:dateTime ;
-    kb:by "hankh1844" ;
+    kb:by "test-agent" ;
   ] .
 ```
 "#;
